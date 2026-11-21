@@ -219,7 +219,8 @@ export class LobbyScene extends Phaser.Scene {
       list.scrollTop = list.scrollHeight;
     }
     const who = players.length ? `${players.length} 📱 + ${this.names.length} bots` : `${this.names.length} / ${MAX_FIGHTERS} fighters`;
-    count.textContent = `${who}${total < 2 ? ' · need at least 2' : ''}`;
+    const over = total > MAX_FIGHTERS ? ` · only ${MAX_FIGHTERS} fit: ${total - MAX_FIGHTERS} bot${total - MAX_FIGHTERS === 1 ? '' : 's'} sit out` : '';
+    count.textContent = `${who}${total < 2 ? ' · need at least 2' : over}`;
     start.disabled = total < 2;
     players.forEach((p, i) => hostRoom.sendYou(p.id, waitingYou(p.name, colors[i], "You're in! Waiting for the host to start…")));
     this.renderParty();

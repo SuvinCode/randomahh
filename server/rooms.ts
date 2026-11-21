@@ -67,7 +67,8 @@ export class RoomHub {
       maxRooms: 500,
       hostGraceMs: 60_000,
       playerRate: 40,
-      hostRate: 400,
+      // The host sends each player ~7 status updates a second, plus 20 frames: room for 50 players.
+      hostRate: 1000,
       // Crypto-random: the token is what lets a host reclaim its room.
       random: () => randomInt(0, 2 ** 31) / 2 ** 31,
       now: Date.now,
