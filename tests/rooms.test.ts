@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RoomHub, type Conn } from '../server/rooms';
 import { CMD, FLAG, FRAME_MAGIC, FrameWriter, OBJ, decodeFrame, to15 } from '../shared/frame';
-import { BTN, MAX_ROOM_PLAYERS, YouSchema, decode, normalizeCode, type You } from '../shared/room';
+import { BTN, HostToServerSchema, MAX_HOST_MESSAGE_BYTES, YouSchema, decode, normalizeCode, type You } from '../shared/room';
 
 class FakeConn implements Conn {
   sent: any[] = [];
@@ -127,12 +127,18 @@ describe('room hub', () => {
     expect(hst.conn.last('in').b).toBe(BTN.jump);
   });
 
-  it('caps players per room', () => {
+  it('has no cap on players per room', () => {
     const h = hub();
     const hst = host(h);
-    for (let k = 0; k < MAX_ROOM_PLAYERS; k++) player(h, hst.code, `player${String(k).padStart(4, '0')}`);
-    const extra = player(h, hst.code, 'latecomer1');
-    expect(extra.conn.last('bye').reason).toMatch(/full/);
+    const players = Array.from({ length: 150 }, (_, k) => player(h, hst.code, `player${String(k).padStart(4, '0')}`));
+    for (const p of players) expect(p.conn.sent.some((m) => m.t === 'bye')).toBe(false);
+    expect(hst.conn.sent.filter((m) => m.t === 'join')).toHaveLength(150);
+  });
+
+  it('accepts a roster of 500 fighters (big party rooms)', () => {
+    const f = Array.from({ length: 500 }, (_, k) => [k, `Player number ${k}`.slice(0, 20), '#a1b2c3', true]);
+    const raw = JSON.stringify({ t: 'to', id: 'player0001', m: { t: 'roster', f } });
+    expect(decode(HostToServerSchema, raw, MAX_HOST_MESSAGE_BYTES)).not.toBeNull();
   });
 
   it('kicks a player on the host’s request', () => {

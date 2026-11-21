@@ -9,16 +9,16 @@
  */
 import { z } from 'zod';
 import { MAX_NAME, POWERUP_TYPES, WEAPON_TYPES } from './commands';
+import { MAX_FRAME_FIGHTERS } from './frame';
 
 /** Room codes: 4 letters, no I/O (they look like 1/0). */
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const ROOM_CODE_RE = /^[A-HJ-NP-Z]{4}$/;
-/** People who can join by QR code per room (bots fill the rest of the arena). */
-export const MAX_ROOM_PLAYERS = 10;
+// No cap on players per room: everyone who scans the QR code gets a fighter.
 /** Bigger messages from players are dropped. */
 export const MAX_MESSAGE_BYTES = 1024;
-/** The host's JSON messages (arena layout, roster) can be bigger. */
-export const MAX_HOST_MESSAGE_BYTES = 16 * 1024;
+/** The host's JSON messages (arena layout, roster of up to MAX_FRAME_FIGHTERS) can be bigger. */
+export const MAX_HOST_MESSAGE_BYTES = 40 * 1024;
 /** WebSocket path on the same origin as the game. */
 export const WS_PATH = '/ws';
 
@@ -86,7 +86,7 @@ export type Arena = z.infer<typeof ArenaSchema>;
 export const RosterSchema = z
   .object({
     t: z.literal('roster'),
-    f: z.array(z.tuple([Id, z.string().min(1).max(MAX_NAME), Hex, z.boolean()])).max(120),
+    f: z.array(z.tuple([Id, z.string().min(1).max(MAX_NAME), Hex, z.boolean()])).max(MAX_FRAME_FIGHTERS),
   })
   .strict();
 export type Roster = z.infer<typeof RosterSchema>;

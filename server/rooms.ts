@@ -15,7 +15,6 @@ import { cleanName } from '../shared/parseCommand';
 import {
   HostToServerSchema,
   MAX_HOST_MESSAGE_BYTES,
-  MAX_ROOM_PLAYERS,
   PlayerToServerSchema,
   ROOM_CODE_ALPHABET,
   decode,
@@ -67,8 +66,9 @@ export class RoomHub {
       maxRooms: 500,
       hostGraceMs: 60_000,
       playerRate: 40,
-      // The host sends each player ~7 status updates a second, plus 20 frames: room for 50 players.
-      hostRate: 1000,
+      // The host sends each player up to ~7 status updates a second, plus 20 frames.
+      // Rooms have no player cap, so this is high: room for ~1,400 players.
+      hostRate: 10_000,
       // Crypto-random: the token is what lets a host reclaim its room.
       random: () => randomInt(0, 2 ** 31) / 2 ** 31,
       now: Date.now,
@@ -165,8 +165,6 @@ export class RoomHub {
       // Same player again (reload, second tab): the newest connection wins.
       sendTo(existing.conn, { t: 'bye', reason: 'You joined from another tab.' });
       existing.conn.close();
-    } else if (room.players.size >= MAX_ROOM_PLAYERS) {
-      return `Room ${code} is full (${MAX_ROOM_PLAYERS} players).`;
     }
     room.players.set(pid, { name, conn });
     sendTo(conn, { t: 'joined', code, name });

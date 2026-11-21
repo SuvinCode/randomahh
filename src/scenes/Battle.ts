@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { DISASTERS, MAX_FIGHTERS, WEAPONS_CATALOG, WEAPON_TYPES, type Action, type DisasterType, type PowerupType, type WeaponType } from '@shared/commands';
-import { FLAG, FRAME_MAGIC, FrameWriter, to15 } from '@shared/frame';
+import { FLAG, FRAME_MAGIC, FrameWriter, MAX_FRAME_FIGHTERS, to15 } from '@shared/frame';
 import type { Arena } from '@shared/room';
 import { uniqueName } from '@shared/names';
 import { parseCommand } from '@shared/parseCommand';
@@ -206,7 +206,8 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private spawnFighter(name: string, dropIn: boolean, pilot: string | null = null): Fighter | undefined {
-    if (this.fighters.filter((f) => f.alive).length >= MAX_FIGHTERS) return undefined;
+    // Bots stop at MAX_FIGHTERS; players (phones) always get a fighter.
+    if (pilot === null && this.fighters.filter((f) => f.alive).length >= MAX_FIGHTERS) return undefined;
     const tops = standingTops(this.terrain);
     const surface = this.rng.frac() < 0.55 ? tops[0] : this.rng.pick(tops);
     const x = this.rng.between(surface.x + 14, surface.x + surface.width - 14);
@@ -249,7 +250,7 @@ export class BattleScene extends Phaser.Scene {
         this.rosterDirty = false;
         hostRoom.broadcast({
           t: 'roster',
-          f: this.fighters.slice(-120).map((f) => [f.id, f.name, colorHex(f.color), f.pilot !== null] as [number, string, string, boolean]),
+          f: this.fighters.slice(-MAX_FRAME_FIGHTERS).map((f) => [f.id, f.name, colorHex(f.color), f.pilot !== null] as [number, string, string, boolean]),
         });
       }
       hostRoom.sendFrame(this.writeFrame());
@@ -318,7 +319,7 @@ export class BattleScene extends Phaser.Scene {
     w.push(i16(t & 0xffff));
     w.push(zl);
     w.push(zr);
-    const alive = this.fighters.filter((k) => k.alive).slice(0, 120);
+    const alive = this.fighters.filter((k) => k.alive).slice(0, MAX_FRAME_FIGHTERS);
     w.push(alive.length);
     for (const k of alive) {
       let flags = 0;
@@ -474,7 +475,12 @@ export class BattleScene extends Phaser.Scene {
     }
     this.god.setBusy(true);
     this.god.setStatus(`🤔 Interpreting “${text.slice(0, 40)}”…`);
-    const res = await interpretRemotely(text, names);
+    // The AI request takes a limited list of names (big party rooms can have more):
+    // send the ones the text mentions first.
+    const lower = text.toLowerCase();
+    const mentioned = names.filter((n) => lower.includes(n.toLowerCase()));
+    const forAi = [...new Set([...mentioned, ...names])].slice(0, MAX_FIGHTERS + 20);
+    const res = await interpretRemotely(text, forAi);
     if (!this.scene.isActive()) return;
     this.god.setBusy(false);
     if (!res.ok) {

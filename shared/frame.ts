@@ -26,7 +26,10 @@ export const MAX_FRAME_BYTES = MAX_FRAME_VALUES * 2;
 /** Fighter flags. */
 export const FLAG = { hidden: 1, hurt: 2, shield: 4, flying: 8, chilled: 16, rage: 32, attacking: 64, autopilot: 128 } as const;
 
-const LIMITS = { f: 120, c: 30, p: 300, l: 30, x: 40 } as const;
+/** Most fighters a frame (and the roster) carries: phones only see this many at once. */
+export const MAX_FRAME_FIGHTERS = 500;
+
+const LIMITS = { f: MAX_FRAME_FIGHTERS, c: 30, p: 300, l: 30, x: 40 } as const;
 
 /** Mirrored objects. `front`: everything after it is drawn in front of the fighters. */
 export const OBJ = { graphics: 1, text: 2, rect: 3, circle: 4, push: 5, pop: 6, front: 7 } as const;

@@ -1,7 +1,6 @@
 import Phaser from 'phaser';
 import qrcode from 'qrcode-generator';
 import { MAX_FIGHTERS } from '@shared/commands';
-import { MAX_ROOM_PLAYERS } from '@shared/room';
 import { addNames, randomNames } from '@shared/names';
 import { sfx } from '../audio/sfx';
 import { ARENA, COMBAT_ENABLED, GAME_HEIGHT, REGISTRY_KEYS } from '../config';
@@ -26,7 +25,6 @@ const CSS = `
 .party .hint { font-size: 11px; color: #9a9ab5; line-height: 1.4; }
 .party .warn { color: #ff8a8a; }
 .party .joined { font-size: 13px; font-weight: bold; color: #4cc9f0; }
-.party .joined.full { color: #ff8a8a; }
 .chip.player { background: #102a35; }
 .lobby-row { display: flex; gap: 8px; }
 .lobby input { flex: 1; min-width: 0; height: 42px; box-sizing: border-box; padding: 0 14px; border-radius: 10px;
@@ -227,7 +225,9 @@ export class LobbyScene extends Phaser.Scene {
       list.scrollTop = list.scrollHeight;
     }
     const who = players.length ? `${players.length} 📱 + ${this.names.length} bots` : `${this.names.length} / ${MAX_FIGHTERS} fighters`;
-    const over = total > MAX_FIGHTERS ? ` · only ${MAX_FIGHTERS} fit: ${total - MAX_FIGHTERS} bot${total - MAX_FIGHTERS === 1 ? '' : 's'} sit out` : '';
+    // Players always play; bots fill up to MAX_FIGHTERS and the rest sit out.
+    const sitOut = Math.min(this.names.length, Math.max(0, total - MAX_FIGHTERS));
+    const over = sitOut > 0 ? ` · ${sitOut} bot${sitOut === 1 ? '' : 's'} sit out (max ${MAX_FIGHTERS} fighters)` : '';
     count.textContent = `${who}${total < 2 ? ' · need at least 2' : over}`;
     start.disabled = total < 2;
     players.forEach((p, i) => hostRoom.sendYou(p.id, waitingYou(p.name, colors[i], "You're in! Waiting for the host to start…")));
@@ -238,8 +238,7 @@ export class LobbyScene extends Phaser.Scene {
   private renderParty(): void {
     const { qr, code, url, hint, joined } = this.els;
     const n = hostRoom.connected().length;
-    joined.textContent = n >= MAX_ROOM_PLAYERS ? `📱 ${n} / ${MAX_ROOM_PLAYERS} joined · room full` : `📱 ${n} / ${MAX_ROOM_PLAYERS} joined`;
-    joined.classList.toggle('full', n >= MAX_ROOM_PLAYERS);
+    joined.textContent = `📱 ${n} joined`;
     const base = this.joinBase;
     const keys = COMBAT_ENABLED
       ? 'Phones: ◀ ▶ jump · attack buttons<br>Laptops: WASD / arrows · J to attack'
