@@ -88,7 +88,12 @@ const MIN_GAP_MS: Partial<Record<SfxName, number>> = {
 };
 
 const MUTE_KEY = 'random-ahh:muted';
-const MASTER = 0.22;
+/** Overall volume. A limiter after it keeps stacked disasters from distorting. */
+const MASTER = 0.45;
+
+const BADGE_CSS = `position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:20;display:none;
+  padding:8px 14px;border-radius:999px;border:2px solid #ffd23f;background:#141726ee;color:#ffd23f;
+  font:bold 14px monospace;cursor:pointer;box-shadow:0 2px 10px #0008`;
 
 interface NoiseOpts {
   /** Filter: bandpass (default), lowpass or highpass. */
@@ -107,6 +112,7 @@ class Sfx {
   private master?: GainNode;
   private noiseBuf?: AudioBuffer;
   private _muted = false;
+  private badge?: HTMLButtonElement;
 
   constructor() {
     try {
@@ -116,14 +122,38 @@ class Sfx {
     }
   }
 
-  /** Call once with the game, after boot. */
+  /**
+   * Call once with the game, after boot. Browsers keep audio paused until the
+   * first click/tap/key press, so we resume it on any of those (capture phase:
+   * our text boxes stop key events from bubbling), keep it running when the
+   * window loses focus (the host may have the game on a second screen), and
+   * show a "click to turn on sound" badge whenever it's blocked or muted.
+   */
   attach(game: Phaser.Game): void {
     const mgr = game.sound as Phaser.Sound.WebAudioSoundManager;
-    if (!mgr || !('context' in mgr) || !mgr.context) return;
-    this.ctx = mgr.context;
-    this.master = this.ctx.createGain();
+    let ctx: AudioContext | undefined = mgr && 'context' in mgr ? mgr.context : undefined;
+    if (mgr) mgr.pauseOnBlur = false;
+    if (!ctx) {
+      try {
+        ctx = new AudioContext();
+      } catch {
+        return; // no Web Audio at all
+      }
+    }
+    this.ctx = ctx;
+    this.master = ctx.createGain();
     this.master.gain.value = this._muted ? 0 : MASTER;
-    this.master.connect(this.ctx.destination);
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -10;
+    limiter.knee.value = 6;
+    limiter.ratio.value = 12;
+    limiter.attack.value = 0.003;
+    limiter.release.value = 0.2;
+    this.master.connect(limiter).connect(ctx.destination);
+    const wake = () => this.wake();
+    for (const ev of ['pointerdown', 'touchend', 'keydown', 'mousedown']) window.addEventListener(ev, wake, { capture: true });
+    ctx.addEventListener('statechange', () => this.updateBadge());
+    this.makeBadge();
     // Three seconds of white noise, reused for hits, whooshes and rumbles.
     this.noiseBuf = this.ctx.createBuffer(1, this.ctx.sampleRate * 3, this.ctx.sampleRate);
     const data = this.noiseBuf.getChannelData(0);
@@ -134,6 +164,56 @@ class Sfx {
     return this._muted;
   }
 
+  /** Is sound actually coming out (not muted, not blocked by the browser)? */
+  get audible(): boolean {
+    return !!this.ctx && this.ctx.state === 'running' && !this._muted;
+  }
+
+  /** Resume audio if the browser paused it (works from a click/tap/key press, or after one). */
+  private wake(): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state === 'running' || ctx.state === 'closed') return;
+    const now = performance.now();
+    if (now - this.wokeAt < 500) return; // sounds call this a lot; twice a second is plenty
+    this.wokeAt = now;
+    ctx.resume().catch(() => {});
+  }
+  private wokeAt = -1e9;
+
+  private makeBadge(): void {
+    if (typeof document === 'undefined' || this.badge) return;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.style.cssText = BADGE_CSS;
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this._muted) this.toggleMute();
+      this.wake();
+      window.setTimeout(() => {
+        this.updateBadge();
+        this.play('click');
+      }, 50);
+    });
+    document.body.append(b);
+    this.badge = b;
+    this.updateBadge();
+    // Some browsers don't fire statechange reliably: check now and then.
+    window.setInterval(() => this.updateBadge(), 1000);
+  }
+
+  private updateBadge(): void {
+    const b = this.badge;
+    if (!b) return;
+    // Players' controllers don't play sound: no badge there.
+    if (document.documentElement.classList.contains('controller')) {
+      b.style.display = 'none';
+      return;
+    }
+    const blocked = !this.ctx || this.ctx.state !== 'running';
+    b.textContent = this._muted ? '🔇 Sound is off · click to turn it on' : '🔇 Click to turn on sound';
+    b.style.display = this._muted || blocked ? 'block' : 'none';
+  }
+
   toggleMute(): boolean {
     this._muted = !this._muted;
     if (this.master) this.master.gain.value = this._muted ? 0 : MASTER;
@@ -142,6 +222,7 @@ class Sfx {
     } catch {
       /* ignore */
     }
+    this.updateBadge();
     return this._muted;
   }
 
@@ -149,7 +230,12 @@ class Sfx {
 
   play(name: SfxName): void {
     const ctx = this.ctx;
-    if (!ctx || !this.master || this._muted || ctx.state !== 'running') return;
+    if (!ctx || !this.master || this._muted) return;
+    if (ctx.state !== 'running') {
+      // Paused by the browser: try to wake it (allowed once the page has had a click) and skip this one.
+      this.wake();
+      return;
+    }
     const now = performance.now();
     if (now - (this.last.get(name) ?? -1e9) < (MIN_GAP_MS[name] ?? 0)) return;
     this.last.set(name, now);

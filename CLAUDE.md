@@ -199,6 +199,11 @@ tests/                    vitest: contract, parser, names, server (network faked
 - **Give DOM elements a fixed width** (`add.dom()` measures before layout).
 - The Battle and Lobby scenes call `keyboard.disableGlobalCapture()` so typing
   spaces works in the DOM inputs; DOM inputs `stopPropagation` on keydown.
+- **Audio is paused by browsers until a click/tap/key press.** `sfx` resumes it
+  from window capture-phase listeners (our DOM inputs stop key events), sets
+  `pauseOnBlur = false` (the host may watch on a second screen), retries on play,
+  and shows a "🔇 Click to turn on sound" badge while blocked or muted. Headless
+  Playwright allows autoplay, so test the blocked state by stubbing `ctx.resume`.
 - World bounds are open at the top (`setBounds(0, -2000, …)`) so fighters can
   be flung high and fall back.
 

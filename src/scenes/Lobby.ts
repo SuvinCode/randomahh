@@ -183,6 +183,8 @@ export class LobbyScene extends Phaser.Scene {
     const sound = title(this, cx, GAME_HEIGHT - 16, '', 13, '#9a9ab5').setInteractive({ useHandCursor: true });
     const showSound = () => sound.setText(`Sound: ${sfx.muted ? 'off' : 'on'} (tap to change)`);
     showSound();
+    // Stay in sync if sound is switched on from the "click to turn on sound" badge.
+    this.time.addEvent({ delay: 500, loop: true, callback: showSound });
     sound.on('pointerup', () => {
       sfx.toggleMute();
       showSound();
