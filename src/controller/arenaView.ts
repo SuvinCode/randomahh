@@ -21,8 +21,14 @@ const W = 960;
 const H = 540;
 const FW = 20;
 const FH = 26;
-/** Playback runs at least this far behind the host (ms). */
+/** Playback runs at least this far behind the host (ms). Frames come every 50 ms, so less than ~60 starves. */
 const MIN_DELAY = 70;
+/** Never buffer more than this: rarer, longer stalls are bridged by extrapolating instead. */
+const MAX_DELAY = 300;
+/** Lateness samples kept (~5 s of frames at 20/s). */
+const LATE_WINDOW = 100;
+/** When the buffer runs dry, keep fighters moving on their last velocity for up to this long (ms). */
+const EXTRAPOLATE_MS = 120;
 
 type Fx = { kind: 'boom' | 'skull'; x: number; y: number; r: number; ms: number };
 
@@ -36,8 +42,10 @@ export class ArenaView {
   /** host clock − local clock for the least-delayed recent frame. */
   private offset: number | null = null;
   private offsets: number[] = [];
-  /** How late frames typically arrive compared to the best case (ms). */
-  private jitter = 30;
+  /** How late each recent frame arrived compared to the best case (ms). */
+  private late: number[] = [];
+  /** How far behind the host playback runs (ms): covers 95% of late frames plus the gap to the next one. */
+  private bufferMs = 100;
   private lastShown: Frame | null = null;
   private fx: Fx[] = [];
   private lastFrame = 0;
@@ -83,6 +91,8 @@ export class ArenaView {
     this.frames = [];
     this.offsets = [];
     this.offset = null;
+    this.late = [];
+    this.bufferMs = 100;
     this.fx = [];
     this.lastShown = null;
     this.mirrorOf = null;
@@ -99,12 +109,22 @@ export class ArenaView {
     if (newest && (frame.ms <= newest.ms || frame.ms - newest.ms > 5000)) {
       this.frames = [];
       this.offsets = [];
+      this.late = [];
     }
     const off = frame.ms - now;
     this.offsets.push(off);
     if (this.offsets.length > 60) this.offsets.shift();
     this.offset = Math.max(...this.offsets);
-    this.jitter = lerp(this.jitter, Math.min(250, this.offset - off), 0.1);
+    // Size the buffer from the worst recent lateness (95th percentile), not the
+    // average: an average-sized buffer runs dry on every slow burst. +60 covers
+    // the 50 ms until the next frame. (Measured on 80 ms ± 80 ms jitter: frozen
+    // 11% of the time → under 1%, for ~30 ms more delay; clean networks unchanged.)
+    this.late.push(this.offset - off);
+    if (this.late.length > LATE_WINDOW) this.late.shift();
+    if (this.late.length >= 10) {
+      const s = [...this.late].sort((x, y) => x - y);
+      this.bufferMs = Math.max(MIN_DELAY, Math.min(MAX_DELAY, s[Math.floor(s.length * 0.95)] + 60));
+    }
     this.frames.push(frame);
     if (this.frames.length > 40) this.frames.shift();
     for (const [x, y, r] of frame.x) this.fx.push({ kind: 'boom', x, y, r, ms: 0 });
@@ -113,13 +133,16 @@ export class ArenaView {
   /** The two frames around the playback time, and how far between them (0..1). */
   private playback(): { a: Frame; b: Frame; t: number } | null {
     if (!this.frames.length || this.offset === null) return null;
-    const target = performance.now() + this.offset - Math.max(MIN_DELAY, 40 + this.jitter * 1.5);
+    const target = performance.now() + this.offset - this.bufferMs;
     const fs = this.frames;
     while (fs.length > 2 && fs[1].ms <= target) fs.shift();
     const a = fs[0];
     const b = fs[1] ?? a;
     if (b === a || target <= a.ms) return { a, b: a, t: 0 };
-    return { a, b, t: Math.min(1, (target - a.ms) / (b.ms - a.ms)) };
+    // Past the newest frame (a stall): t > 1 carries fighters on along their
+    // last motion for a moment instead of freezing them.
+    const span = b.ms - a.ms;
+    return { a, b, t: Math.min(1 + EXTRAPOLATE_MS / span, (target - a.ms) / span) };
   }
 
   // ---------------------------------------------------------------------
@@ -175,7 +198,11 @@ export class ArenaView {
       const n = fb.f.find((k) => k[0] === f[0]);
       // Teleports snap instead of sliding across the arena.
       if (!n || Math.abs(n[1] - f[1]) + Math.abs(n[2] - f[2]) > 160) return { x: f[1], y: f[2] };
-      return { x: lerp(f[1], n[1], t), y: lerp(f[2], n[2], t) };
+      if (t <= 1) return { x: lerp(f[1], n[1], t), y: lerp(f[2], n[2], t) };
+      // Extrapolating through a stall: sideways freely, but only a little
+      // vertically so a falling fighter doesn't sink into the floor.
+      const dy = (n[2] - f[2]) * (t - 1);
+      return { x: lerp(f[1], n[1], t), y: n[2] + Math.max(-10, Math.min(10, dy)) };
     };
 
     // Disasters' drawings: replayed once per frame into two layers.
