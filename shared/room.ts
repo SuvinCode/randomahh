@@ -8,13 +8,13 @@
  * schemas. Objects are `.strict()`: unknown keys are rejected.
  */
 import { z } from 'zod';
-import { MAX_FIGHTERS, MAX_NAME, POWERUP_TYPES, WEAPON_TYPES } from './commands';
+import { MAX_NAME, POWERUP_TYPES, WEAPON_TYPES } from './commands';
 
 /** Room codes: 4 letters, no I/O (they look like 1/0). */
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const ROOM_CODE_RE = /^[A-HJ-NP-Z]{4}$/;
-/** Players per room: a whole arena of people (bots fill any free spots). */
-export const MAX_ROOM_PLAYERS = MAX_FIGHTERS;
+/** People who can join by QR code per room (bots fill the rest of the arena). */
+export const MAX_ROOM_PLAYERS = 10;
 /** Bigger messages from players are dropped. */
 export const MAX_MESSAGE_BYTES = 1024;
 /** The host's JSON messages (arena layout, roster) can be bigger. */

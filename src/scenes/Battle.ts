@@ -244,8 +244,7 @@ export class BattleScene extends Phaser.Scene {
     }
     this.snapMs -= dt;
     if (this.snapMs <= 0 && hostRoom.connected().length) {
-      // 20 frames a second; 15 in big rooms (a quarter less data, phones smooth it out).
-      this.snapMs = hostRoom.connected().length > 24 ? 66 : 50;
+      this.snapMs = 50; // 20 frames a second
       if (this.rosterDirty) {
         this.rosterDirty = false;
         hostRoom.broadcast({

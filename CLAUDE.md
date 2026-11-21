@@ -54,10 +54,10 @@ the rest of the roster. The host starts the battle and just watches / plays god.
   rects, circles, containers at disaster depths, see `src/net/mirror.ts`). So new
   disasters show on phones automatically, as long as they draw with those object
   types at `DEPTH.disasterBack`…`DEPTH.telegraph`. Frames are 1–6 KB.
-- Up to 50 players per room (`MAX_ROOM_PLAYERS` = `MAX_FIGHTERS`; bots fill free
-  spots, extra bots sit out). Big rooms (>24 players) stream 15 frames/s instead
-  of 20. Load-tested: 50 simulated players + 4 disasters → host 115 fps, ~150 KB/s
-  per phone, ~7.5 MB/s out in total; the venue's Wi-Fi is the real limit.
+- Up to 10 players can join a room (`MAX_ROOM_PLAYERS` in shared/room.ts; the
+  11th is told it's full); bots fill the rest of the arena (50 fighters max, extra
+  bots sit out). The lobby shows "n / 10 joined" under the QR code. Load-tested
+  with 50 simulated players (host 115 fps), so 10 has lots of headroom.
 - Phones (`src/controller/arenaView.ts`) play frames back ~70–150 ms behind the
   host's clock (jitter buffer, fighters interpolated) so bursty networks don't
   stutter; terrain is a cached layer, the mirror is replayed once per frame into

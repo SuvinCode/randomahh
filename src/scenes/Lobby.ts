@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import qrcode from 'qrcode-generator';
 import { MAX_FIGHTERS } from '@shared/commands';
+import { MAX_ROOM_PLAYERS } from '@shared/room';
 import { addNames, randomNames } from '@shared/names';
 import { sfx } from '../audio/sfx';
 import { ARENA, COMBAT_ENABLED, GAME_HEIGHT, REGISTRY_KEYS } from '../config';
@@ -24,6 +25,8 @@ const CSS = `
 .party .url { font-size: 12px; color: #fff; word-break: break-all; }
 .party .hint { font-size: 11px; color: #9a9ab5; line-height: 1.4; }
 .party .warn { color: #ff8a8a; }
+.party .joined { font-size: 13px; font-weight: bold; color: #4cc9f0; }
+.party .joined.full { color: #ff8a8a; }
 .chip.player { background: #102a35; }
 .lobby-row { display: flex; gap: 8px; }
 .lobby input { flex: 1; min-width: 0; height: 42px; box-sizing: border-box; padding: 0 14px; border-radius: 10px;
@@ -57,6 +60,7 @@ export class LobbyScene extends Phaser.Scene {
     code: HTMLElement;
     url: HTMLElement;
     hint: HTMLElement;
+    joined: HTMLElement;
   };
   private joinBase: { url: string; lanOnly: boolean; warn?: string } | null = null;
   private shownQr = '';
@@ -80,6 +84,7 @@ export class LobbyScene extends Phaser.Scene {
         <div class="qr" role="img" aria-label="QR code to join">…</div>
         <div class="code" aria-label="Room code">····</div>
         <div class="url"></div>
+        <div class="joined"></div>
         <div class="hint"></div>
       </div>
       <div class="lobby">
@@ -108,6 +113,7 @@ export class LobbyScene extends Phaser.Scene {
       code: root.querySelector('.code')!,
       url: root.querySelector('.url')!,
       hint: root.querySelector('.hint')!,
+      joined: root.querySelector('.joined')!,
     };
     const add = () => {
       const v = this.els.input.value;
@@ -228,7 +234,10 @@ export class LobbyScene extends Phaser.Scene {
 
   /** QR code, room code and address for players. */
   private renderParty(): void {
-    const { qr, code, url, hint } = this.els;
+    const { qr, code, url, hint, joined } = this.els;
+    const n = hostRoom.connected().length;
+    joined.textContent = n >= MAX_ROOM_PLAYERS ? `📱 ${n} / ${MAX_ROOM_PLAYERS} joined · room full` : `📱 ${n} / ${MAX_ROOM_PLAYERS} joined`;
+    joined.classList.toggle('full', n >= MAX_ROOM_PLAYERS);
     const base = this.joinBase;
     const keys = COMBAT_ENABLED
       ? 'Phones: ◀ ▶ jump · attack buttons<br>Laptops: WASD / arrows · J to attack'
