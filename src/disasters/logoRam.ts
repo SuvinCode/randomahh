@@ -12,11 +12,17 @@ const R = 72;
 
 type Style = 'claude' | 'tanda' | 'badge';
 
+/** Tanda's logo colours: white wordmark on dark navy. */
+const TANDA_NAVY = 0x1b3a66;
+/** Half the side of the Tanda square (fits the ram's hit circle). */
+const TANDA_HALF = 64;
+
 /**
  * A giant logo charges across the arena like a battering ram. Its lane flashes
  * first (with arrows on the side it comes from); then it rolls through,
  * flattening everyone in the way. The label picks the look: "Claude" is an
- * orange spark, "Tanda" a blue badge, anything else a badge with the name.
+ * orange spark, "Tanda" its logo (white TANDA on a navy square, sliding with
+ * a rocking tilt instead of rolling), anything else a badge with the name.
  */
 export const logoRam: DisasterFactory = (ctx, spec) => {
   const { scene, rng, floorY } = ctx;
@@ -31,13 +37,13 @@ export const logoRam: DisasterFactory = (ctx, spec) => {
     const g = scene.add.graphics().setDepth(DEPTH.disaster);
     drawLogo(g, style, ctx.colors.hazard);
     const text = scene.add
-      .text(0, 0, style === 'claude' ? 'Claude' : style === 'tanda' ? 'tanda' : brand.slice(0, 14), {
-        fontFamily: style === 'claude' ? 'Georgia, serif' : 'Arial, sans-serif',
-        fontSize: style === 'badge' ? '22px' : '26px',
+      .text(0, 0, style === 'claude' ? 'Claude' : style === 'tanda' ? 'TANDA' : brand.slice(0, 14), {
+        fontFamily: style === 'claude' ? 'Georgia, serif' : 'Arial, Helvetica, sans-serif',
+        fontSize: style === 'badge' ? '22px' : style === 'tanda' ? '30px' : '26px',
         fontStyle: 'bold',
         color: style === 'claude' ? '#3d3929' : '#ffffff',
         stroke: style === 'claude' ? '#f5f0e8' : '#000000',
-        strokeThickness: style === 'claude' ? 5 : 4,
+        strokeThickness: style === 'claude' ? 5 : style === 'tanda' ? 0 : 4,
       })
       .setOrigin(0.5)
       .setDepth(DEPTH.disaster + 1);
@@ -78,7 +84,11 @@ export const logoRam: DisasterFactory = (ctx, spec) => {
           ctx.juice.shake(250, 0.006);
         }
         r.body.x += r.dir * SPEED * (dt / 1000);
-        r.body.rotation += r.dir * SPEED * (dt / 1000) / R; // rolls
+        if (style === 'tanda') {
+          // The logo square slides, rocking a little, with its wordmark tilting along.
+          r.body.rotation = Math.sin(r.ms / 90) * 0.06;
+          r.text.setRotation(r.body.rotation);
+        } else r.body.rotation += r.dir * SPEED * (dt / 1000) / R; // rolls
         r.text.setPosition(r.body.x, r.y + (style === 'claude' ? R + 18 : 0));
         if (Math.random() < dt / 40) ctx.juice.burst(r.body.x - r.dir * R, r.y + R - 6, 0xcccccc, 2);
         for (const t of ctx.targets()) {
@@ -120,15 +130,11 @@ function drawLogo(g: Phaser.GameObjects.Graphics, style: Style, fallback: number
     return;
   }
   if (style === 'tanda') {
-    const blue = 0x2a5bd7;
-    g.fillStyle(0x000000, 1).fillCircle(0, 0, R + 3);
-    g.fillStyle(blue, 1).fillCircle(0, 0, R);
-    g.lineStyle(6, 0xffffff, 0.9).strokeCircle(0, 0, R - 10);
-    // Clock ticks: Tanda is all about rostering and time.
-    for (let k = 0; k < 12; k++) {
-      const a = (k / 12) * Math.PI * 2;
-      g.lineStyle(4, 0xffffff, 0.8).lineBetween(Math.cos(a) * (R - 20), Math.sin(a) * (R - 20), Math.cos(a) * (R - 12), Math.sin(a) * (R - 12));
-    }
+    // Tanda's logo: white "TANDA" (the text object) on a dark navy square.
+    const s = TANDA_HALF;
+    g.fillStyle(0x000000, 0.35).fillRoundedRect(-s + 4, -s + 6, s * 2, s * 2, 6); // drop shadow
+    g.fillStyle(TANDA_NAVY, 1).fillRoundedRect(-s, -s, s * 2, s * 2, 6);
+    g.lineStyle(2, 0x2c4f80, 1).strokeRoundedRect(-s, -s, s * 2, s * 2, 6);
     return;
   }
   g.fillStyle(0x000000, 1).fillCircle(0, 0, R + 3);

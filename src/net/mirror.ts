@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { CMD, FrameWriter, MAX_TEXT, OBJ, to15 } from '@shared/frame';
+import { CMD, FONT, FrameWriter, MAX_TEXT, OBJ, to15 } from '@shared/frame';
 import { DEPTH } from '../config';
 
 /**
@@ -88,7 +88,7 @@ function writeAny(w: FrameWriter, o: Visible): 'ok' | 'skip' | 'full' {
   if (o instanceof Phaser.GameObjects.Text) {
     const text = o.text.slice(0, MAX_TEXT);
     if (!text) return 'skip';
-    if (w.room < 12 + text.length) return 'full';
+    if (w.room < 13 + text.length) return 'full';
     const st = o.style;
     w.push(OBJ.text);
     w.push(o.x);
@@ -101,6 +101,8 @@ function writeAny(w: FrameWriter, o: Visible): 'ok' | 'skip' | 'full' {
     w.push(st.strokeThickness || 0);
     w.push(permille(o.alpha));
     w.push(mrad(o.rotation));
+    const family = String(st.fontFamily).toLowerCase();
+    w.push(/mono|courier|consol/.test(family) ? FONT.mono : /serif/.test(family) && !/sans/.test(family) ? FONT.serif : FONT.sans);
     w.push(text.length);
     for (let k = 0; k < text.length; k++) w.push((text.charCodeAt(k) << 16) >> 16); // uint16 → int16
     return 'ok';

@@ -238,7 +238,7 @@ function sampleFrame(): Uint8Array {
   cmds.forEach((v) => w.push(v));
   w.push(OBJ.front);
   w.push(OBJ.text);
-  for (const v of [480, 100, 50, 50, 22, to15(0xffffff), 0, 5, 1000, 0, 2]) w.push(v);
+  for (const v of [480, 100, 50, 50, 22, to15(0xffffff), 0, 5, 1000, 0, 1, 2]) w.push(v);
   w.push('3'.charCodeAt(0));
   w.push('!'.charCodeAt(0));
   return w.bytes();

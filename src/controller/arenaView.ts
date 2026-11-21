@@ -13,7 +13,7 @@
  * are cached as small bitmaps.
  */
 import { WEAPONS_CATALOG, WEAPON_TYPES } from '@shared/commands';
-import { CMD, FLAG, OBJ, OBJ_ARGS, css15, type Frame } from '@shared/frame';
+import { CMD, FLAG, FONT_CSS, OBJ, OBJ_ARGS, css15, type Frame } from '@shared/frame';
 import type { Arena, Roster } from '@shared/room';
 import { COMBAT_ENABLED } from '../config';
 
@@ -355,7 +355,7 @@ export class ArenaView {
             break;
           }
           case OBJ.text: {
-            const n = v[10];
+            const n = v[11];
             let text = '';
             for (let k = 0; k < n; k++) text += String.fromCharCode(m[i + k] & 0xffff);
             i += n;
@@ -363,7 +363,7 @@ export class ArenaView {
             g.translate(v[0], v[1]);
             g.rotate(v[9] / 1000);
             g.globalAlpha = alpha * (v[8] / 1000);
-            g.font = `bold ${v[4]}px monospace`;
+            g.font = `bold ${v[4]}px ${FONT_CSS[v[10]] ?? 'monospace'}`;
             g.textAlign = 'left';
             g.textBaseline = 'middle';
             const tw = g.measureText(text).width;

@@ -33,7 +33,7 @@ export const OBJ = { graphics: 1, text: 2, rect: 3, circle: 4, push: 5, pop: 6, 
 /** Values after the OBJ code (graphics/text: plus a variable-length tail, see below). */
 export const OBJ_ARGS: Record<number, number> = {
   [OBJ.graphics]: 7, // x, y, rot, sx, sy, alpha, n  → then n command values
-  [OBJ.text]: 11, // x, y, originX, originY, size, fill15, stroke15, strokeWidth, alpha, rot, n → then n char codes
+  [OBJ.text]: 12, // x, y, originX, originY, size, fill15, stroke15, strokeWidth, alpha, rot, font (FONT), n → then n char codes
   [OBJ.rect]: 10, // x, y, w, h, originX, originY, fill15, fillAlpha, alpha, rot
   [OBJ.circle]: 6, // x, y, r, fill15, fillAlpha, alpha
   [OBJ.push]: 6, // x, y, rot, sx, sy, alpha  (a container's transform)
@@ -64,6 +64,9 @@ export const CMD = {
 export const CMD_ARGS: Record<number, number> = { 0: 6, 1: 0, 2: 0, 3: 4, 4: 2, 5: 2, 6: 3, 7: 2, 8: 0, 9: 0, 10: 6, 11: 6, 14: 0, 15: 0, 16: 2, 17: 2, 18: 1 };
 
 export const MAX_TEXT = 80;
+/** Text font families. */
+export const FONT = { mono: 0, sans: 1, serif: 2 } as const;
+export const FONT_CSS = ['monospace', 'Arial, Helvetica, sans-serif', 'Georgia, serif'] as const;
 
 // ---------------------------------------------------------------------------
 
@@ -185,9 +188,10 @@ function validMirror(m: Int16Array): boolean {
       continue;
     }
     if (op === OBJ.text) {
-      const n = m[i + 10];
+      const font = m[i + 10];
+      const n = m[i + 11];
       i += args;
-      if (n < 0 || n > MAX_TEXT || i + n > m.length) return false;
+      if (font < 0 || font >= FONT_CSS.length || n < 0 || n > MAX_TEXT || i + n > m.length) return false;
       i += n;
       continue;
     }
