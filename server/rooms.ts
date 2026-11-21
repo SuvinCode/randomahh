@@ -13,6 +13,7 @@ import { randomInt } from 'node:crypto';
 import { cleanName } from '../shared/parseCommand';
 import {
   HostToServerSchema,
+  MAX_HOST_MESSAGE_BYTES,
   MAX_ROOM_PLAYERS,
   PlayerToServerSchema,
   ROOM_CODE_ALPHABET,
@@ -86,7 +87,7 @@ export class RoomHub {
         if (done) return;
         if (!bucket(role?.kind === 'host' ? this.opts.hostRate : this.opts.playerRate)) return;
         if (!role) {
-          const h = decode(HostToServerSchema, raw);
+          const h = decode(HostToServerSchema, raw, MAX_HOST_MESSAGE_BYTES);
           if (h?.t === 'open') {
             const room = this.openRoom(conn, h.resume);
             if (room) role = { kind: 'host', room };
@@ -166,11 +167,14 @@ export class RoomHub {
 
   private fromHost(room: Room, conn: Conn, raw: string): void {
     if (room.host !== conn) return;
-    const m = decode(HostToServerSchema, raw);
+    const m = decode(HostToServerSchema, raw, MAX_HOST_MESSAGE_BYTES);
     if (!m) return;
     if (m.t === 'to') {
       const p = room.players.get(m.id);
       if (p) sendTo(p.conn, m.m);
+    } else if (m.t === 'all') {
+      const data = JSON.stringify(m.m);
+      for (const p of room.players.values()) sendRaw(p.conn, data);
     } else if (m.t === 'kick') {
       const p = room.players.get(m.id);
       if (!p) return;
@@ -251,8 +255,12 @@ export class RoomHub {
 }
 
 function sendTo(conn: Conn, m: ServerToHost | ServerToPlayer): void {
+  sendRaw(conn, JSON.stringify(m));
+}
+
+function sendRaw(conn: Conn, data: string): void {
   try {
-    conn.send(JSON.stringify(m));
+    conn.send(data);
   } catch {
     /* socket already closing */
   }

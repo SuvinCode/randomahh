@@ -15,8 +15,10 @@ export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const ROOM_CODE_RE = /^[A-HJ-NP-Z]{4}$/;
 /** Players per room (the rest of the arena can be AI bots). */
 export const MAX_ROOM_PLAYERS = 24;
-/** Bigger messages are dropped (and the socket closed). */
+/** Bigger messages from players are dropped. */
 export const MAX_MESSAGE_BYTES = 1024;
+/** The host also streams arena snapshots, which are bigger. */
+export const MAX_HOST_MESSAGE_BYTES = 32 * 1024;
 /** WebSocket path on the same origin as the game. */
 export const WS_PATH = '/ws';
 
@@ -47,9 +49,81 @@ export const YouSchema = z
     place: z.number().int().min(0).max(999),
     /** One short line ("Waiting for the host to start…", "🏆 You win!"). */
     msg: z.string().max(80),
+    /** Your fighter's id in snapshots (0 = none yet). */
+    fid: z.number().int().min(0).max(1_000_000),
   })
   .strict();
 export type You = z.infer<typeof YouSchema>;
+
+// ---------------------------------------------------------------------------
+// Live arena view on the controllers (the host streams what's happening).
+// Coordinates are arena pixels (960×540), rounded to integers.
+
+const Hex = z.string().regex(/^#[0-9a-f]{6}$/i);
+const N = z.number().int().min(-5000).max(5000);
+const Id = z.number().int().min(0).max(1_000_000);
+const Color = z.number().int().min(0).max(0xffffff);
+const Rect = z.tuple([N, N, N, N]);
+
+/** The arena's look and terrain: sent when a battle starts (and to anyone who joins). */
+export const ArenaSchema = z
+  .object({
+    t: z.literal('arena'),
+    theme: z.string().max(40),
+    sky: Hex,
+    ground: Hex,
+    platform: Hex,
+    accent: Hex,
+    /** Solid floor rects [x, y, w, h]. */
+    solid: z.array(Rect).max(16),
+    /** One-way ledges [x, y, w, h]. */
+    ledges: z.array(Rect).max(40),
+  })
+  .strict();
+export type Arena = z.infer<typeof ArenaSchema>;
+
+/** Who's who: [fighter id, name, colour, is a player]. Sent when fighters are added. */
+export const RosterSchema = z
+  .object({
+    t: z.literal('roster'),
+    f: z.array(z.tuple([Id, z.string().min(1).max(MAX_NAME), Hex, z.boolean()])).max(120),
+  })
+  .strict();
+export type Roster = z.infer<typeof RosterSchema>;
+
+/** Fighter flags in snapshots. */
+export const FLAG = { hidden: 1, hurt: 2, shield: 4, flying: 8, chilled: 16, rage: 32, attacking: 64, autopilot: 128 } as const;
+
+const Small = (max: number) => z.number().int().min(0).max(max);
+
+/** One moment of the battle, ~15 times a second. */
+export const SnapSchema = z
+  .object({
+    t: z.literal('snap'),
+    /** Storm-safe span [left, right]. */
+    z: z.tuple([N, N]),
+    /** Living fighters: [id, x (centre), y (centre), facing ±1, hp, FLAG bits, weapon index]. */
+    f: z.array(z.tuple([Id, N, N, z.number().int().min(-1).max(1), Small(100), Small(255), Small(31)])).max(120),
+    /** Bosses and minions (Dr Doom, zombies): [x, y, w, h, colour] (top-left box). */
+    b: z.array(z.tuple([N, N, N, N, Color])).max(80),
+    /** Crates: [x, y, 1 = mystery powerup / 0 = weapon]. */
+    c: z.array(z.tuple([N, N, Small(1)])).max(30),
+    /** Projectiles: [x, y, colour, radius]. */
+    p: z.array(z.tuple([N, N, Color, z.number().int().min(1).max(40)])).max(250),
+    /** Beams drawn this moment: [x1, y1, x2, y2, half-width, colour]. */
+    l: z.array(z.tuple([N, N, N, N, z.number().int().min(1).max(200), Color])).max(30),
+    /** Explosions since the last snapshot: [x, y, radius]. */
+    x: z.array(z.tuple([N, N, z.number().int().min(1).max(2000)])).max(40),
+  })
+  .strict();
+export type Snap = z.infer<typeof SnapSchema>;
+
+/** A big announcement ("DOUBLE KILL!", "🌪️ Tornado!"). */
+export const SaySchema = z.object({ t: z.literal('say'), text: z.string().max(80), color: Hex }).strict();
+
+/** Anything the host may send to players. */
+export const FeedSchema = z.discriminatedUnion('t', [YouSchema, ArenaSchema, RosterSchema, SnapSchema, SaySchema]);
+export type Feed = z.infer<typeof FeedSchema>;
 
 // ---------------------------------------------------------------------------
 // Player ⇄ server
@@ -67,6 +141,10 @@ export const ServerToPlayerSchema = z.discriminatedUnion('t', [
   /** Room gone or join refused: show `reason`, don't auto-reconnect. */
   z.object({ t: z.literal('bye'), reason: z.string().max(120) }).strict(),
   YouSchema,
+  ArenaSchema,
+  RosterSchema,
+  SnapSchema,
+  SaySchema,
 ]);
 export type ServerToPlayer = z.infer<typeof ServerToPlayerSchema>;
 
@@ -76,7 +154,10 @@ export type ServerToPlayer = z.infer<typeof ServerToPlayerSchema>;
 export const HostToServerSchema = z.discriminatedUnion('t', [
   /** Open a new room, or reclaim one after a dropped connection. */
   z.object({ t: z.literal('open'), resume: z.object({ code: Code, token: Token }).strict().optional() }).strict(),
-  z.object({ t: z.literal('to'), id: PlayerId, m: YouSchema }).strict(),
+  /** To one player. */
+  z.object({ t: z.literal('to'), id: PlayerId, m: FeedSchema }).strict(),
+  /** To every player in the room (arena snapshots). */
+  z.object({ t: z.literal('all'), m: FeedSchema }).strict(),
   z.object({ t: z.literal('kick'), id: PlayerId, reason: z.string().max(120) }).strict(),
 ]);
 export type HostToServer = z.infer<typeof HostToServerSchema>;
@@ -91,8 +172,8 @@ export const ServerToHostSchema = z.discriminatedUnion('t', [
 export type ServerToHost = z.infer<typeof ServerToHostSchema>;
 
 /** Parse one JSON message against a schema; null if it's not valid. */
-export function decode<T>(schema: z.ZodType<T>, raw: string): T | null {
-  if (raw.length > MAX_MESSAGE_BYTES) return null;
+export function decode<T>(schema: z.ZodType<T>, raw: string, maxBytes = MAX_MESSAGE_BYTES): T | null {
+  if (raw.length > maxBytes) return null;
   try {
     const r = schema.safeParse(JSON.parse(raw));
     return r.success ? r.data : null;

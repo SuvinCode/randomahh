@@ -29,7 +29,11 @@ export class Hud {
   }
 
   /** Big centred callout that floats up and fades. Several stack instead of overlapping. */
+  /** Also told about every announcement (to show it on players' phones). */
+  onAnnounce: ((text: string, color: number) => void) | null = null;
+
   announce(text: string, color = 0xffd23f, size = 28): void {
+    this.onAnnounce?.(text, color);
     const y = 150 + this.announceY * 36;
     this.announceY = (this.announceY + 1) % 4;
     const t = this.scene.add

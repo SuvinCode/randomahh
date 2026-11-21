@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RoomHub, type Conn } from '../server/rooms';
-import { BTN, MAX_ROOM_PLAYERS, YouSchema, decode, normalizeCode, type You } from '../shared/room';
+import { BTN, FLAG, MAX_ROOM_PLAYERS, YouSchema, decode, normalizeCode, type You } from '../shared/room';
 
 class FakeConn implements Conn {
   sent: any[] = [];
@@ -35,7 +35,7 @@ function player(h: RoomHub, code: string, pid = 'player0001', name = 'Bob') {
 }
 
 const you: You = {
-  t: 'you', name: 'Bob', color: '#ff0000', phase: 'fight', hp: 80, weapon: 'sword', powerups: ['shield'], kills: 1, alive: 5, place: 0, msg: 'Fight!',
+  t: 'you', name: 'Bob', color: '#ff0000', phase: 'fight', hp: 80, weapon: 'sword', powerups: ['shield'], kills: 1, alive: 5, place: 0, msg: 'Fight!', fid: 7,
 };
 
 beforeEach(() => {
@@ -65,6 +65,26 @@ describe('room hub', () => {
 
     hst.s.message(JSON.stringify({ t: 'to', id: 'player0001', m: you }));
     expect(p.conn.last('you')).toEqual(you);
+  });
+
+  it('broadcasts arena snapshots to every player', () => {
+    const h = hub();
+    const hst = host(h);
+    const a = player(h, hst.code, 'player0001', 'Ann');
+    const b = player(h, hst.code, 'player0002', 'Bo');
+    const snap = {
+      t: 'snap', z: [0, 960],
+      f: Array.from({ length: 50 }, (_, k) => [k + 1, 100 + k, 400, k % 2 ? 1 : -1, 80, FLAG.shield | FLAG.flying, 3]),
+      b: [[10, 20, 30, 40, 0xff00ff]], c: [[300, 480, 1]], p: Array.from({ length: 200 }, () => [10, 10, 0xffffff, 3]), l: [], x: [[50, 50, 90]],
+    };
+    const raw = JSON.stringify({ t: 'all', m: snap });
+    expect(raw.length).toBeGreaterThan(1024); // bigger than a player may send
+    hst.s.message(raw);
+    expect(a.conn.last('snap')).toEqual(snap);
+    expect(b.conn.last('snap')).toEqual(snap);
+    // Malformed snapshots are dropped.
+    hst.s.message(JSON.stringify({ t: 'all', m: { ...snap, f: [[1, 2, 3, 5, 80, 0, 0]] } }));
+    expect(a.conn.sent.filter((m) => m.t === 'snap')).toHaveLength(1);
   });
 
   it('rejects unknown rooms, bad messages and unknown keys', () => {

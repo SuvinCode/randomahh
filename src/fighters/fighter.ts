@@ -124,6 +124,14 @@ export class Fighter implements Target {
     this.chillMs = Math.max(this.chillMs, ms);
   }
 
+  /** For the players' arena view. */
+  get hurtFlash(): boolean {
+    return this.flashMs > 0;
+  }
+  get chilled(): boolean {
+    return this.chillMs > 0;
+  }
+
   get onGround(): boolean {
     return this.body.blocked.down || this.body.touching.down;
   }

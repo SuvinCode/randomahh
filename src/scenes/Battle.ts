@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { DISASTERS, MAX_FIGHTERS, WEAPONS_CATALOG, type Action, type DisasterType, type PowerupType, type WeaponType } from '@shared/commands';
+import { DISASTERS, MAX_FIGHTERS, WEAPONS_CATALOG, WEAPON_TYPES, type Action, type DisasterType, type PowerupType, type WeaponType } from '@shared/commands';
+import { FLAG, type Arena, type Snap } from '@shared/room';
 import { uniqueName } from '@shared/names';
 import { parseCommand } from '@shared/parseCommand';
 import { sfx } from '../audio/sfx';
@@ -92,6 +93,10 @@ export class BattleScene extends Phaser.Scene {
   private places = new Map<string, { place: number; by: string }>();
   private syncMs = 0;
   private unsubscribe: (() => void)[] = [];
+  /** Players' arena view: snapshot timer, explosions since the last one, roster needs resending. */
+  private snapMs = 0;
+  private booms: [number, number, number][] = [];
+  private rosterDirty = true;
 
   constructor() {
     super('Battle');
@@ -112,6 +117,9 @@ export class BattleScene extends Phaser.Scene {
     this.stormWarned = false;
     this.places = new Map();
     this.syncMs = 0;
+    this.snapMs = 0;
+    this.booms = [];
+    this.rosterDirty = true;
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
     // Typing in the god box needs Space etc.; nothing in the battle uses the keyboard.
     this.input.keyboard?.disableGlobalCapture();
@@ -153,6 +161,9 @@ export class BattleScene extends Phaser.Scene {
     this.totalFighters = this.fighters.length;
     hostRoom.reservedNames = () => this.fighters.map((f) => f.name);
     this.unsubscribe = [hostRoom.on('join', (pl) => this.playerJoined(pl))];
+    // Phones show the arena too: terrain now, then live snapshots (updatePlayers).
+    hostRoom.broadcast(this.arenaFeed());
+    this.hud.onAnnounce = (text, color) => hostRoom.broadcast({ t: 'say', text: text.slice(0, 80), color: colorHex(color) });
     this.hud.announce('FIGHT!', 0xffd23f, 44);
     this.god.setStatus('Type a disaster, or tap one below.');
     sfx.play('spawn');
@@ -202,11 +213,15 @@ export class BattleScene extends Phaser.Scene {
     this.physics.add.collider(f.sprite, this.bodies.platforms, undefined, (_s: unknown, ledge: unknown) => landsOnTop(f.body, topOf(ledge)));
     this.fighters.push(f);
     this.stats.set(name, { kills: 0, color });
+    this.rosterDirty = true;
     return f;
   }
 
   /** Someone joined (or came back to) the room mid-battle. */
   private playerJoined(pl: RoomPlayer): void {
+    // (Re)joiners need the arena and who's who before snapshots make sense.
+    hostRoom.sendTo(pl.id, this.arenaFeed());
+    this.rosterDirty = true;
     if (this.ending || this.fighters.some((f) => f.pilot === pl.id)) return;
     const f = this.spawnFighter(pl.name, true, pl.id);
     if (!f) return;
@@ -222,6 +237,18 @@ export class BattleScene extends Phaser.Scene {
       const pl = hostRoom.get(f.pilot);
       // Disconnected players' fighters keep fighting on autopilot until they're back.
       f.buttons = pl?.connected && !this.ending ? pl.buttons : null;
+    }
+    this.snapMs -= dt;
+    if (this.snapMs <= 0 && hostRoom.connected().length) {
+      this.snapMs = 66;
+      if (this.rosterDirty) {
+        this.rosterDirty = false;
+        hostRoom.broadcast({
+          t: 'roster',
+          f: this.fighters.slice(-120).map((f) => [f.id, f.name, colorHex(f.color), f.pilot !== null] as [number, string, string, boolean]),
+        });
+      }
+      hostRoom.broadcast(this.snapshot());
     }
     this.syncMs -= dt;
     if (this.syncMs > 0) return;
@@ -253,8 +280,60 @@ export class BattleScene extends Phaser.Scene {
         alive,
         place: won ? 1 : (done?.place ?? 0),
         msg,
+        fid: f.id,
       });
     }
+  }
+
+  /** The arena's look and terrain, for players' phones. */
+  private arenaFeed(): Arena {
+    const p = this.theme.palette;
+    const rect = (r: { x: number; y: number; width: number; height: number }) =>
+      [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)] as [number, number, number, number];
+    return {
+      t: 'arena',
+      theme: this.theme.name.slice(0, 40),
+      sky: p.sky,
+      ground: p.ground,
+      platform: p.platform,
+      accent: p.accent,
+      solid: this.terrain.ground.slice(0, 16).map(rect),
+      ledges: this.terrain.platforms.slice(0, 40).map(rect),
+    };
+  }
+
+  /** Everything moving, compactly (see SnapSchema). */
+  private snapshot(): Snap {
+    const r = Math.round;
+    const clampN = (v: number) => Math.max(-5000, Math.min(5000, r(v)));
+    const [zl, zr] = this.zone();
+    const f: Snap['f'] = [];
+    for (const k of this.fighters) {
+      if (!k.alive || f.length >= 120) continue;
+      let flags = 0;
+      if (k.hidden) flags |= FLAG.hidden;
+      if (k.hurtFlash) flags |= FLAG.hurt;
+      if (k.has('shield')) flags |= FLAG.shield;
+      if (k.flying) flags |= FLAG.flying;
+      if (k.chilled) flags |= FLAG.chilled;
+      if (k.has('rage')) flags |= FLAG.rage;
+      if (k.swingMs > 0 || k.muzzleMs > 0) flags |= FLAG.attacking;
+      if (k.pilot && k.buttons === null) flags |= FLAG.autopilot;
+      f.push([k.id, clampN(k.x), clampN(k.y), k.facing, Math.max(0, Math.min(100, Math.ceil(k.hp))), flags, WEAPON_TYPES.indexOf(k.weapon)]);
+    }
+    const b: Snap['b'] = this.bosses
+      .filter((t) => t.alive)
+      .slice(0, 80)
+      .map((t) => {
+        const bb = t.bounds();
+        return [clampN(bb.left), clampN(bb.top), Math.min(5000, r(bb.right - bb.left)), Math.min(5000, r(bb.bottom - bb.top)), t.color & 0xffffff];
+      });
+    const c: Snap['c'] = this.crates.slice(0, 30).map((k) => [r(k.x), r(k.y), k.loot.kind === 'powerup' ? 1 : 0]);
+    const l: Snap['l'] = this.beams
+      .slice(0, 30)
+      .map((k) => [clampN(k.x1), clampN(k.y1), clampN(k.x2), clampN(k.y2), Math.max(1, Math.min(200, r(k.half))), k.color & 0xffffff]);
+    const x = this.booms.splice(0).slice(0, 40);
+    return { t: 'snap', z: [r(zl), r(zr)], f, b, c, p: this.projectiles.snapshot(250).map(([px, py, pc, pr]) => [clampN(px), clampN(py), pc, pr]), l, x };
   }
 
   /** Current storm-safe span. Full width until zoneStartMs, then closes toward the middle. */
@@ -323,6 +402,7 @@ export class BattleScene extends Phaser.Scene {
 
   private explode(x: number, y: number, radius: number, dmg: number, by: Attacker, spare?: Target): void {
     this.juice.explosion(x, y, radius);
+    if (this.booms.length < 40) this.booms.push([Math.round(x), Math.round(y), Math.max(1, Math.min(2000, Math.round(radius)))]);
     sfx.play('explode');
     for (const t of this.ctx.targets()) {
       if (t === spare || !boxHitsCircle(t.bounds(), x, y, radius)) continue;
@@ -613,6 +693,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    this.hud.onAnnounce = null;
     this.unsubscribe.forEach((u) => u());
     this.unsubscribe = [];
     for (const f of this.fighters) f.buttons = null;

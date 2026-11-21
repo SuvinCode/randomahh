@@ -35,8 +35,13 @@ and their phone/laptop becomes a **controller** for their own fighter; bots fill
 the rest of the roster. The host starts the battle and just watches / plays god.
 
 - **The host's browser is authoritative**: it runs the whole battle. Controllers
-  only send button bits (`BTN`: left, right, jump, attack, down) and show a
-  status snapshot (`You`: HP, weapon, powerups, phase, place) the host sends ~6×/s.
+  only send button bits (`BTN`: left, right, jump, attack, down). The host sends
+  each a status (`You`: HP, weapon, powerups, phase, place, `fid`) and streams to
+  all of them the arena (`arena` once per battle/join, `roster` when fighters are
+  added, `snap` ~15×/s, `say` for announcements), which `src/controller/arenaView.ts`
+  draws on a 2D canvas: the whole arena under the status bar, positions smoothed.
+  Disasters themselves aren't mirrored (only their bosses/minions, projectiles,
+  beams and explosions); add new visible things to `SnapSchema` + `Battle.snapshot()`.
 - `shared/room.ts` is the room contract (Zod, `.strict()`), validated by the
   server and both clients. `server/rooms.ts` (`RoomHub`) only relays: no game
   logic. `server/wsServer.ts` attaches it at `/ws` to the dev server (vite.config)
@@ -200,7 +205,7 @@ quick buttons on desktop.
 
 ## Ideas / roadmap
 
-- Party mode: aim stick, emotes from the controller, spectator view on phones
+- Party mode: aim stick, emotes from the controller, mirror disasters' own visuals on phones
 - Teams mode, more weapons and disasters (zombies, sharks, UFO), slow-mo on the final kill
 - Pixel art
 - Old survival-mode prototype: `old-survival-version.zip` (git-ignored backup)

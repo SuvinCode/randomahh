@@ -1,5 +1,5 @@
 import { uniqueName } from '@shared/names';
-import { ServerToHostSchema, WS_PATH, decode, type HostToServer, type ServerToHost, type You } from '@shared/room';
+import { ServerToHostSchema, WS_PATH, decode, type Feed, type HostToServer, type ServerToHost, type You } from '@shared/room';
 
 /** A person in the room, playing from their phone or laptop. */
 export interface RoomPlayer {
@@ -80,6 +80,16 @@ class HostRoom {
     const now = performance.now();
     if (last && last.json === json && now - last.at < 2000) return;
     if (this.send({ t: 'to', id, m: you })) this.lastSent.set(id, { json, at: now });
+  }
+
+  /** Send to every player (arena, roster, snapshots, announcements). */
+  broadcast(m: Feed): void {
+    if (this.players.size) this.send({ t: 'all', m });
+  }
+
+  /** Send to one player. */
+  sendTo(id: string, m: Feed): void {
+    this.send({ t: 'to', id, m });
   }
 
   kick(id: string): void {

@@ -19,5 +19,6 @@ export function waitingYou(name: string, color: number, msg: string): You {
     alive: 0,
     place: 0,
     msg: msg.slice(0, 80),
+    fid: 0,
   };
 }

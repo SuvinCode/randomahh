@@ -1,13 +1,17 @@
 /**
  * A player's controller (phone or laptop), opened from the host's QR code:
- * /join?room=ABCD. No Phaser here: the host's screen shows the battle; this
- * page only sends buttons and shows your health, weapon and status.
+ * /join?room=ABCD. No Phaser here: the host's browser runs the battle and
+ * streams snapshots; this page draws them (arenaView.ts), sends buttons, and
+ * shows your health, weapon and status.
  *
- * Phones (landscape): ◀ ▶ bottom-left (slide between them), attack and jump
- * bottom-right. Laptops: WASD / arrows, Space or W to jump, J/K/F to attack.
+ * Phones (landscape): the arena fills the screen and follows you, with
+ * see-through ◀ ▶ bottom-left (slide between them), attack and jump
+ * bottom-right. Upright: arena on top, buttons below. Laptops: WASD / arrows,
+ * Space or W to jump, J/K/F to attack.
  */
 import { POWERUPS, WEAPONS_CATALOG, MAX_NAME } from '@shared/commands';
 import { BTN, PlayerToServerSchema, ServerToPlayerSchema, WS_PATH, decode, normalizeCode, type PlayerToServer, type You } from '@shared/room';
+import { ArenaView } from './arenaView';
 import './controller.css';
 
 const NAME_KEY = 'random-ahh:player-name';
@@ -132,6 +136,8 @@ class Controller {
   private hostOn = true;
   private wakeLock: { release(): Promise<void> } | null = null;
   private readonly root: HTMLElement;
+  private readonly view: ArenaView;
+  private msgTimer = 0;
   private readonly ui: {
     name: HTMLElement;
     bar: HTMLElement;
@@ -139,6 +145,9 @@ class Controller {
     gear: HTMLElement;
     stats: HTMLElement;
     msg: HTMLElement;
+    say: HTMLElement;
+    turn: HTMLElement;
+    top: HTMLElement;
     attackIco: HTMLElement;
   };
 
@@ -147,8 +156,9 @@ class Controller {
     private readonly name: string,
   ) {
     document.querySelector('.join')?.remove();
-    this.root = el('div', 'ctl idle');
+    this.root = el('div', 'ctl idle center');
     this.root.innerHTML = `
+      <canvas class="view" aria-label="The arena"></canvas>
       <header class="top">
         <span class="name"></span>
         <span class="hp"><span class="bar"><i></i></span><span class="hpnum"></span></span>
@@ -161,12 +171,13 @@ class Controller {
         <button class="btn down" data-b="${BTN.down}" aria-label="Fly down">▼</button>
       </div>
       <div class="msg" aria-live="polite"></div>
+      <div class="say" aria-live="polite"></div>
       <div class="pad right">
         <button class="btn attack" data-b="${BTN.attack}" aria-label="Attack"><span class="ico">⚔️</span><small>ATTACK</small></button>
         <button class="btn jump" data-b="${BTN.jump}" aria-label="Jump">⤒<small>JUMP</small></button>
       </div>
       <div class="keys">A/D or ←/→ move · W/Space jump · S down (flying) · J attack</div>
-      <div class="turn">↻ Turn your phone sideways</div>`;
+      <div class="turn">↻ Turn sideways for a bigger view</div>`;
     document.body.append(this.root);
     const q = <T extends HTMLElement>(s: string) => this.root.querySelector<T>(s)!;
     this.ui = {
@@ -176,8 +187,16 @@ class Controller {
       gear: q('.gear'),
       stats: q('.stats'),
       msg: q('.msg'),
+      say: q('.say'),
+      turn: q('.turn'),
+      top: q('.top'),
       attackIco: q('.attack .ico'),
     };
+    this.view = new ArenaView(q<HTMLCanvasElement>('.view'));
+    const layout = () => this.layout();
+    window.addEventListener('resize', layout);
+    window.visualViewport?.addEventListener('resize', layout);
+    layout();
     this.ui.name.textContent = name;
     this.setMsg('Connecting…');
     this.bindTouch();
@@ -206,6 +225,7 @@ class Controller {
           return;
         case 'host':
           this.hostOn = m.on;
+          this.root.classList.toggle('center', !m.on || this.you?.phase !== 'fight');
           if (!m.on) this.setMsg('The host’s screen lost connection… hang on.');
           else if (this.you) this.render(this.you);
           return;
@@ -217,11 +237,25 @@ class Controller {
         case 'you':
           this.render(m);
           return;
+        case 'arena':
+          this.view.setArena(m);
+          this.layout();
+          return;
+        case 'roster':
+          this.view.setRoster(m);
+          return;
+        case 'snap':
+          if (this.view.hasArena) this.view.push(m);
+          return;
+        case 'say':
+          this.say(m.text, m.color);
+          return;
       }
     };
     ws.onclose = () => {
       if (this.ws !== ws || this.closed) return;
       this.ws = null;
+      this.root.classList.add('center');
       this.setMsg('Reconnecting…');
       window.setTimeout(() => this.connect(), this.retryMs);
       this.retryMs = Math.min(this.retryMs * 2, 5000);
@@ -316,6 +350,10 @@ class Controller {
     this.ui.name.textContent = y.name;
     const fighting = y.phase === 'fight';
     this.root.classList.toggle('idle', !fighting);
+    this.root.classList.toggle('center', !fighting || !this.hostOn);
+    // Follow your fighter while you're in it; once out, watch the whole arena.
+    this.view.me = y.fid;
+    if (y.phase === 'lobby') this.view.clear();
     this.root.classList.toggle('flying', fighting && y.powerups.includes('flight'));
     const hp = Math.ceil(y.hp);
     this.ui.bar.style.width = `${hp}%`;
@@ -329,6 +367,7 @@ class Controller {
     if (!this.hostOn) return;
     if (y.phase === 'over' && y.place === 1) this.setMsg(y.msg, '🏆');
     else if (y.phase === 'out' || y.phase === 'over') this.setMsg(y.msg, y.place ? `#${y.place}` : '');
+    else if (fighting) this.flashMsg(y.msg);
     else this.setMsg(y.msg);
 
     // Feel it: a buzz when hit, a long one when knocked out.
@@ -344,7 +383,36 @@ class Controller {
     if (prev?.phase !== 'fight' && fighting) navigator.vibrate?.([40, 40, 40]);
   }
 
+  /** While fighting, status lines show for a few seconds and then get out of the way. */
+  private flashMsg(text: string): void {
+    if (this.ui.msg.textContent === text && this.ui.msg.dataset.shown === text) return;
+    this.ui.msg.dataset.shown = text;
+    this.setMsg(text);
+    this.ui.msg.classList.remove('hide');
+    window.clearTimeout(this.msgTimer);
+    this.msgTimer = window.setTimeout(() => this.ui.msg.classList.add('hide'), 3000);
+  }
+
+  private say(text: string, color: string): void {
+    const s = this.ui.say;
+    s.textContent = text;
+    s.style.color = color;
+    s.classList.remove('show');
+    void s.offsetWidth;
+    s.classList.add('show');
+  }
+
+  /** The arena goes under the status bar; upright, status lines go under the arena. */
+  private layout(): void {
+    const bar = this.ui.top.getBoundingClientRect();
+    this.view.topInset = bar.bottom + 4;
+    const arenaH = Math.min(window.innerWidth * (540 / 960), window.innerHeight - bar.bottom - 8);
+    this.root.style.setProperty('--arena-bottom', `${Math.round(bar.bottom + 4 + arenaH)}px`);
+  }
+
   private setMsg(text: string, big = ''): void {
+    this.ui.msg.classList.remove('hide');
+    if (!big) delete this.ui.msg.dataset.shown;
     this.ui.msg.replaceChildren();
     if (big) this.ui.msg.append(el('span', 'big'), document.createTextNode(text));
     else this.ui.msg.textContent = text;

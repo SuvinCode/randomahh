@@ -2,7 +2,7 @@ html.controller,
 html.controller body {
   height: 100%;
   margin: 0;
-  background: #141726;
+  background: #0d0f1a;
   color: #fff;
   font-family: ui-monospace, Menlo, Consolas, monospace;
   overflow: hidden;
@@ -10,6 +10,7 @@ html.controller body {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
+  -webkit-text-size-adjust: 100%;
 }
 html.controller #game,
 html.controller .rotate-hint {
@@ -21,7 +22,7 @@ html.controller .rotate-hint {
 .join {
   box-sizing: border-box;
   min-height: 100%;
-  padding: max(16px, env(safe-area-inset-top)) 16px 16px;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 16px max(16px, env(safe-area-inset-left));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -30,10 +31,11 @@ html.controller .rotate-hint {
 }
 .join h1 {
   margin: 0;
-  font-size: clamp(28px, 7vmin, 48px);
+  font-size: clamp(26px, 7vmin, 48px);
   color: #ffd23f;
   text-shadow: 3px 3px 0 #000;
   letter-spacing: 1px;
+  text-align: center;
 }
 .join p.sub {
   margin: 0 0 4px;
@@ -55,16 +57,18 @@ html.controller .rotate-hint {
   font-size: 12px;
   color: #9a9ab5;
   flex: 1 1 200px;
+  min-width: 0;
 }
 .join input {
   height: 48px;
+  width: 100%;
   box-sizing: border-box;
   padding: 0 14px;
   border-radius: 12px;
   border: 2px solid #ffd23f;
   background: #0d0f1a;
   color: #fff;
-  font: 20px ui-monospace, Menlo, Consolas, monospace;
+  font: 18px ui-monospace, Menlo, Consolas, monospace;
   outline: none;
   -webkit-user-select: text;
   user-select: text;
@@ -84,9 +88,6 @@ html.controller .rotate-hint {
   font: bold 22px ui-monospace, Menlo, Consolas, monospace;
   cursor: pointer;
 }
-.join button:disabled {
-  opacity: 0.5;
-}
 .join .err {
   min-height: 1.4em;
   margin: 0;
@@ -95,53 +96,71 @@ html.controller .rotate-hint {
   text-align: center;
 }
 
-/* ---------------------------------------------------------- controller */
+/* ---------------------------------------------------------- controller
+   The arena fills the screen; everything else floats on top of it. */
 
 .ctl {
   --c: #ffd23f;
+  --st: max(6px, env(safe-area-inset-top));
+  --sr: max(10px, env(safe-area-inset-right));
+  --sb: max(10px, env(safe-area-inset-bottom));
+  --sl: max(10px, env(safe-area-inset-left));
+  --bar: 36px;
+  --btn: clamp(54px, 21vmin, 100px);
+  --jump: clamp(64px, 25vmin, 118px);
   position: fixed;
   inset: 0;
+  overflow: hidden;
   touch-action: none;
-  padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom))
-    max(12px, env(safe-area-inset-left));
-  box-sizing: border-box;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  grid-template-rows: auto 1fr;
-  gap: 8px;
+}
+.ctl .view {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
+/* Status bar */
 .top {
-  grid-column: 1 / -1;
+  position: absolute;
+  top: var(--st);
+  left: var(--sl);
+  right: var(--sr);
+  height: var(--bar);
+  box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 6px 10px;
-  border-radius: 12px;
-  background: #1d2036;
+  gap: 8px;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: rgba(13, 15, 26, 0.72);
   border: 2px solid var(--c);
-  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 14px;
 }
 .top .name {
-  font-weight: bold;
-  font-size: 18px;
-  color: var(--c);
-  white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 34%;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 30vw;
+  font-weight: bold;
+  color: var(--c);
 }
 .top .hp {
-  flex: 1;
+  flex: 1 1 50px;
+  min-width: 36px;
   display: flex;
   align-items: center;
   gap: 6px;
-  min-width: 60px;
 }
 .top .bar {
   flex: 1;
-  height: 12px;
-  border-radius: 6px;
+  min-width: 0;
+  height: 10px;
+  border-radius: 5px;
   background: #000;
   overflow: hidden;
   border: 1px solid #33365a;
@@ -154,64 +173,128 @@ html.controller .rotate-hint {
   transition: width 0.15s, background 0.3s;
 }
 .top .hpnum {
-  font-size: 14px;
-  width: 2.5em;
+  flex: none;
+  font-size: 12px;
+  min-width: 2ch;
   text-align: right;
 }
 .top .gear {
-  font-size: 20px;
-  white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 16px;
 }
 .top .stats {
-  font-size: 14px;
+  flex: none;
+  font-size: 12px;
   color: #c9c9e0;
-  white-space: nowrap;
+}
+.ctl.idle .top .hp {
+  visibility: hidden;
 }
 
+/* One-line status under the bar while fighting; a card in the middle otherwise. */
 .msg {
-  grid-column: 2;
-  grid-row: 2;
-  align-self: center;
-  justify-self: center;
-  max-width: 36vw;
-  text-align: center;
-  font-size: clamp(14px, 3.4vmin, 22px);
+  position: absolute;
+  left: 50%;
+  top: calc(var(--st) + var(--bar) + 8px);
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  box-sizing: border-box;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  font-size: 13px;
   font-weight: bold;
-  color: #fff;
-  text-shadow: 2px 2px 0 #000;
+  text-align: center;
   pointer-events: none;
+  transition: opacity 0.4s;
+}
+.msg.hide,
+.msg:empty {
+  opacity: 0;
+}
+.ctl.center .msg {
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: max-content;
+  max-width: min(88vw, 460px);
+  padding: 14px 18px;
+  border-radius: 14px;
+  background: rgba(13, 15, 26, 0.85);
+  border: 2px solid var(--c);
+  font-size: clamp(14px, 4vmin, 19px);
+  line-height: 1.35;
+  opacity: 1;
 }
 .msg .big {
   display: block;
-  font-size: clamp(26px, 8vmin, 54px);
+  font-size: clamp(28px, 9vmin, 52px);
   color: var(--c);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
+/* Announcements from the big screen ("DOUBLE KILL!") */
+.say {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--st) + var(--bar) + 40px);
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  font-size: 14px;
+  font-weight: bold;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 0;
+}
+.say.show {
+  animation: say 2.4s forwards;
+}
+@keyframes say {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.8);
+  }
+  10%,
+  80% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Buttons: see-through, in the bottom corners (thumbs). */
 .pad {
-  grid-row: 2;
+  position: absolute;
+  bottom: var(--sb);
   display: flex;
   align-items: flex-end;
-  gap: 12px;
+  gap: 10px;
 }
 .pad.left {
-  grid-column: 1;
-  justify-content: flex-start;
+  left: var(--sl);
 }
 .pad.right {
-  grid-column: 3;
-  justify-content: flex-end;
+  right: var(--sr);
 }
-
 .btn {
-  --size: clamp(76px, 25vmin, 128px);
-  width: var(--size);
-  height: var(--size);
-  border-radius: 22px;
-  border: 3px solid rgba(255, 255, 255, 0.45);
-  background: rgba(255, 255, 255, 0.1);
+  width: var(--btn);
+  height: var(--btn);
+  flex: none;
+  box-sizing: border-box;
+  border-radius: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  background: rgba(20, 23, 38, 0.35);
   color: #fff;
-  font: bold clamp(30px, 10vmin, 52px) ui-monospace, Menlo, Consolas, monospace;
+  font: bold calc(var(--btn) * 0.4) ui-monospace, Menlo, Consolas, monospace;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -220,128 +303,124 @@ html.controller .rotate-hint {
   padding: 0;
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
+  text-shadow: 0 1px 2px #000;
   transition: transform 0.05s, background 0.05s;
 }
 .btn small {
-  font-size: clamp(10px, 2.6vmin, 13px);
-  margin-top: 4px;
+  font-size: 10px;
+  margin-top: 3px;
   letter-spacing: 1px;
 }
 .btn.on {
-  background: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.4);
   border-color: #fff;
-  transform: scale(0.94);
+  transform: scale(0.93);
 }
 .btn.jump {
+  width: var(--jump);
+  height: var(--jump);
   border-radius: 50%;
   border-color: var(--c);
-  --size: clamp(88px, 30vmin, 150px);
+  font-size: calc(var(--jump) * 0.36);
 }
 .btn.attack {
   border-radius: 50%;
   border-color: #ff5d73;
-  background: rgba(255, 93, 115, 0.18);
-  margin-bottom: clamp(36px, 14vmin, 80px);
+  background: rgba(255, 93, 115, 0.22);
+  margin-bottom: calc(var(--jump) * 0.55);
 }
 .btn.attack.on {
-  background: rgba(255, 93, 115, 0.55);
+  background: rgba(255, 93, 115, 0.6);
 }
 .btn.attack .ico {
-  font-size: clamp(28px, 9vmin, 46px);
+  font-size: calc(var(--btn) * 0.36);
 }
 .btn.down {
-  --size: clamp(60px, 19vmin, 96px);
   display: none;
+  width: calc(var(--btn) * 0.8);
+  height: calc(var(--btn) * 0.8);
 }
 .ctl.flying .btn.down {
   display: flex;
 }
-.ctl.flying .btn.jump small::after {
-  content: ' / FLY';
-}
-
-/* Not fighting right now: controls are just for warming up your thumbs. */
 .ctl.idle .pad {
-  opacity: 0.45;
+  opacity: 0.5;
 }
-.ctl.hurt .top {
-  animation: hurt 0.25s;
+.ctl.hurt::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 40px 10px rgba(255, 40, 60, 0.6);
+  animation: hurt 0.3s forwards;
 }
 @keyframes hurt {
-  0% {
-    background: #7a1f2b;
-  }
-  100% {
-    background: #1d2036;
+  to {
+    opacity: 0;
   }
 }
 
-.banner {
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  padding: 14px 18px;
-  border-radius: 12px;
-  background: #000c;
-  border: 2px solid #ffd23f;
-  text-align: center;
-  font-size: 16px;
-  max-width: 80vw;
-  z-index: 5;
-}
-.banner button {
-  margin-top: 10px;
-  height: 44px;
-  padding: 0 18px;
-  border-radius: 10px;
-  border: 0;
-  background: #ffd23f;
-  color: #141726;
-  font: bold 16px ui-monospace, Menlo, Consolas, monospace;
-}
-
-.keys {
+.keys,
+.turn {
   display: none;
 }
 @media (hover: hover) and (pointer: fine) {
   .keys {
     display: block;
-    position: fixed;
+    position: absolute;
     bottom: 8px;
     left: 50%;
     transform: translateX(-50%);
-    font-size: 12px;
-    color: #7d7d99;
+    font-size: 11px;
+    color: #c9c9e0;
+    background: rgba(0, 0, 0, 0.5);
+    padding: 3px 8px;
+    border-radius: 6px;
     white-space: nowrap;
+    pointer-events: none;
   }
 }
 
-.turn {
-  display: none;
-}
-@media (orientation: portrait) and (pointer: coarse) {
-  .turn {
-    display: block;
-    position: fixed;
-    left: 0;
-    right: 0;
-    top: 50%;
-    text-align: center;
-    color: #ffd23f;
-    font-size: 16px;
-    pointer-events: none;
-  }
-  .ctl .msg {
-    max-width: 90vw;
-    grid-column: 1 / -1;
-    align-self: start;
-    margin-top: 12px;
-  }
+/* Upright phone: the arena sits at the top (drawn by the canvas), buttons
+   underneath; attack above jump so everything fits a narrow screen. */
+@media (orientation: portrait) {
   .ctl {
-    grid-template-columns: 1fr 1fr;
+    --btn: clamp(58px, 21vw, 96px);
+    --jump: clamp(66px, 24vw, 112px);
+  }
+  .pad.left {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 10px;
+  }
+  .pad.left .btn.down {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    justify-self: center;
   }
   .pad.right {
-    grid-column: 2;
+    flex-direction: column;
+    align-items: center;
+  }
+  .btn.attack {
+    margin-bottom: 0;
+  }
+  .turn {
+    display: block;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(var(--arena-bottom) + 78px);
+    text-align: center;
+    color: #ffd23f;
+    font-size: 13px;
+    pointer-events: none;
+  }
+  /* Status lines under the arena instead of over it. */
+  .ctl:not(.center) .msg {
+    top: calc(var(--arena-bottom) + 8px);
+  }
+  .say {
+    top: calc(var(--arena-bottom) + 44px);
   }
 }

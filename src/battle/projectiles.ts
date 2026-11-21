@@ -57,6 +57,16 @@ export class Projectiles {
     return this.list.length;
   }
 
+  /** What's in flight, for the players' arena view: [x, y, colour, radius]. */
+  snapshot(max: number): [number, number, number, number][] {
+    const out: [number, number, number, number][] = [];
+    for (const p of this.list) {
+      if (out.length >= max) break;
+      out.push([Math.round(p.x), Math.round(p.y), p.color & 0xffffff, Math.max(1, Math.min(40, Math.round(p.radius)))]);
+    }
+    return out;
+  }
+
   update(dt: number): void {
     const s = dt / 1000;
     const targets = this.ctx.targets();

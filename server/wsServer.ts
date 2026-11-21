@@ -6,13 +6,13 @@
 import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { MAX_MESSAGE_BYTES, WS_PATH } from '../shared/room';
+import { MAX_HOST_MESSAGE_BYTES, WS_PATH } from '../shared/room';
 import { RoomHub } from './rooms';
 
 const PING_MS = 15_000;
 
 export function attachRooms(server: Server, hub = new RoomHub()): { hub: RoomHub; close: () => void } {
-  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES * 4 });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_HOST_MESSAGE_BYTES + 1024 });
   const alive = new WeakSet<WebSocket>();
 
   const onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
