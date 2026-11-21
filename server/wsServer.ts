@@ -6,13 +6,14 @@
 import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { MAX_HOST_MESSAGE_BYTES, WS_PATH } from '../shared/room';
+import { MAX_FRAME_BYTES } from '../shared/frame';
+import { WS_PATH } from '../shared/room';
 import { RoomHub } from './rooms';
 
 const PING_MS = 15_000;
 
 export function attachRooms(server: Server, hub = new RoomHub()): { hub: RoomHub; close: () => void } {
-  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_HOST_MESSAGE_BYTES + 1024 });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES + 1024 });
   const alive = new WeakSet<WebSocket>();
 
   const onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
@@ -28,8 +29,9 @@ export function attachRooms(server: Server, hub = new RoomHub()): { hub: RoomHub
       });
       ws.on('pong', () => alive.add(ws));
       ws.on('message', (data, isBinary) => {
-        if (isBinary) return;
-        session.message(data.toString());
+        if (!isBinary) return session.message(data.toString());
+        const buf = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer);
+        session.binary(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
       });
       ws.on('close', () => session.closed());
       ws.on('error', () => ws.terminate());

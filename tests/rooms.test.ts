@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RoomHub, type Conn } from '../server/rooms';
-import { BTN, FLAG, MAX_ROOM_PLAYERS, YouSchema, decode, normalizeCode, type You } from '../shared/room';
+import { CMD, FLAG, FRAME_MAGIC, FrameWriter, OBJ, decodeFrame, to15 } from '../shared/frame';
+import { BTN, MAX_ROOM_PLAYERS, YouSchema, decode, normalizeCode, type You } from '../shared/room';
 
 class FakeConn implements Conn {
   sent: any[] = [];
+  frames: Uint8Array[] = [];
   closed = false;
-  send(data: string) {
-    this.sent.push(JSON.parse(data));
+  send(data: string | Uint8Array) {
+    if (typeof data === 'string') this.sent.push(JSON.parse(data));
+    else this.frames.push(data);
   }
   close() {
     this.closed = true;
@@ -67,24 +70,20 @@ describe('room hub', () => {
     expect(p.conn.last('you')).toEqual(you);
   });
 
-  it('broadcasts arena snapshots to every player', () => {
+  it('relays binary arena frames from the host to every player, untouched', () => {
     const h = hub();
     const hst = host(h);
     const a = player(h, hst.code, 'player0001', 'Ann');
     const b = player(h, hst.code, 'player0002', 'Bo');
-    const snap = {
-      t: 'snap', z: [0, 960],
-      f: Array.from({ length: 50 }, (_, k) => [k + 1, 100 + k, 400, k % 2 ? 1 : -1, 80, FLAG.shield | FLAG.flying, 3]),
-      b: [[10, 20, 30, 40, 0xff00ff]], c: [[300, 480, 1]], p: Array.from({ length: 200 }, () => [10, 10, 0xffffff, 3]), l: [], x: [[50, 50, 90]],
-    };
-    const raw = JSON.stringify({ t: 'all', m: snap });
-    expect(raw.length).toBeGreaterThan(1024); // bigger than a player may send
-    hst.s.message(raw);
-    expect(a.conn.last('snap')).toEqual(snap);
-    expect(b.conn.last('snap')).toEqual(snap);
-    // Malformed snapshots are dropped.
-    hst.s.message(JSON.stringify({ t: 'all', m: { ...snap, f: [[1, 2, 3, 5, 80, 0, 0]] } }));
-    expect(a.conn.sent.filter((m) => m.t === 'snap')).toHaveLength(1);
+    const bytes = sampleFrame();
+    hst.s.binary(bytes);
+    expect(a.conn.frames).toEqual([bytes]);
+    expect(b.conn.frames).toEqual([bytes]);
+    // Garbage is dropped; players can't send frames.
+    hst.s.binary(new Uint8Array([1, 2, 3, 4]));
+    a.s.binary(bytes);
+    expect(a.conn.frames).toHaveLength(1);
+    expect(b.conn.frames).toHaveLength(1);
   });
 
   it('rejects unknown rooms, bad messages and unknown keys', () => {
@@ -216,5 +215,57 @@ describe('room contract', () => {
     expect(normalizeCode(' ab cd ')).toBe('ABCD');
     expect(normalizeCode('ABIO')).toBeNull(); // no I/O in codes
     expect(normalizeCode('ABC')).toBeNull();
+  });
+});
+
+/** A frame with one fighter, one crate, a shot and a tornado-ish drawing. */
+function sampleFrame(): Uint8Array {
+  const w = new FrameWriter();
+  for (const v of [FRAME_MAGIC, 0, 1234, 0, 960]) w.push(v);
+  w.push(1);
+  for (const v of [7, 100, 400, 1, 80, FLAG.shield | FLAG.flying, 3]) w.push(v);
+  w.push(1);
+  for (const v of [300, 480, 1]) w.push(v);
+  w.push(1);
+  for (const v of [10, 10, to15(0xffd23f), 3]) w.push(v);
+  w.push(0);
+  w.push(0);
+  // mirror: one graphics object (fill style, circle) then a front marker and a text
+  w.push(OBJ.graphics);
+  for (const v of [0, 0, 0, 100, 100, 1000]) w.push(v);
+  const cmds = [CMD.fillStyle, to15(0xaaaaaa), 800, CMD.begin, CMD.arc, 200, 300, 40, 0, 6283, 0, CMD.fillPath];
+  w.push(cmds.length);
+  cmds.forEach((v) => w.push(v));
+  w.push(OBJ.front);
+  w.push(OBJ.text);
+  for (const v of [480, 100, 50, 50, 22, to15(0xffffff), 0, 5, 1000, 0, 2]) w.push(v);
+  w.push('3'.charCodeAt(0));
+  w.push('!'.charCodeAt(0));
+  return w.bytes();
+}
+
+describe('arena frames', () => {
+  it('round-trip through the binary format', () => {
+    const f = decodeFrame(sampleFrame())!;
+    expect(f).not.toBeNull();
+    expect(f.ms).toBe(1234);
+    expect(f.f).toEqual([[7, 100, 400, 1, 80, FLAG.shield | FLAG.flying, 3]]);
+    expect(f.c).toEqual([[300, 480, 1]]);
+    expect(f.p[0][0]).toBe(10);
+    expect(f.mirror[0]).toBe(OBJ.graphics);
+  });
+
+  it('rejects malformed frames', () => {
+    const good = sampleFrame();
+    expect(decodeFrame(good.slice(0, good.length - 2))).toBeNull(); // truncated text
+    const bad = new Uint8Array(good);
+    new DataView(bad.buffer).setInt16(0, 1, true); // wrong magic
+    expect(decodeFrame(bad)).toBeNull();
+    const w = new FrameWriter();
+    for (const v of [FRAME_MAGIC, 0, 0, 0, 960, 0, 0, 0, 0, 0, OBJ.graphics, 0, 0, 0, 100, 100, 1000, 2, 99, 0]) w.push(v);
+    expect(decodeFrame(w.bytes())).toBeNull(); // unknown drawing command
+    const p = new FrameWriter();
+    for (const v of [FRAME_MAGIC, 0, 0, 0, 960, 0, 0, 0, 0, 0, OBJ.pop]) p.push(v);
+    expect(decodeFrame(p.bytes())).toBeNull(); // unbalanced container
   });
 });

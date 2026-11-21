@@ -1,4 +1,13 @@
 import Phaser from 'phaser';
+
+// Ellipses default to 32 points each; 16 looks the same at our sizes and halves
+// the work (and what's streamed to players' phones).
+for (const name of ['fillEllipse', 'strokeEllipse'] as const) {
+  const original = Phaser.GameObjects.Graphics.prototype[name];
+  Phaser.GameObjects.Graphics.prototype[name] = function (this: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number, smoothness = 16) {
+    return original.call(this, x, y, w, h, smoothness);
+  };
+}
 import { ARENA, GAME_HEIGHT } from './config';
 import { BattleScene } from './scenes/Battle';
 import { BootScene } from './scenes/Boot';

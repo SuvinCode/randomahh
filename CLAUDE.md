@@ -36,13 +36,20 @@ the rest of the roster. The host starts the battle and just watches / plays god.
 
 - **The host's browser is authoritative**: it runs the whole battle. Controllers
   only send button bits (`BTN`: left, right, jump, attack, down). The host sends
-  each a status (`You`: HP, weapon, powerups, phase, place, `fid`) and streams to
-  all of them the arena (`arena` once per battle/join, `roster` when fighters are
-  added, `snap` ~15×/s, `say` for announcements), which `src/controller/arenaView.ts`
-  draws on a 2D canvas: the whole arena under the status bar, positions smoothed.
-  Disasters themselves aren't mirrored (only their bosses/minions, projectiles,
-  beams and explosions); add new visible things to `SnapSchema` + `Battle.snapshot()`.
-- `shared/room.ts` is the room contract (Zod, `.strict()`), validated by the
+  each a status (`You`: HP, weapon, powerups, phase, place, `fid`) plus, as JSON,
+  the arena (`arena`, once per battle/join), `roster` (when fighters are added)
+  and `say` (announcements). Everything moving streams 20×/s as **binary frames**
+  (`shared/frame.ts`: int16s; fighters, crates, shots, beams, explosions, and a
+  *mirror* of every disaster's drawing: Phaser Graphics command buffers, texts,
+  rects, circles, containers at disaster depths, see `src/net/mirror.ts`). So new
+  disasters show on phones automatically, as long as they draw with those object
+  types at `DEPTH.disasterBack`…`DEPTH.telegraph`. Frames are 1–6 KB.
+- Phones (`src/controller/arenaView.ts`) play frames back ~70–150 ms behind the
+  host's clock (jitter buffer, fighters interpolated) so bursty networks don't
+  stutter; terrain is a cached layer, the mirror is replayed once per frame into
+  behind/in-front layers, emoji are cached bitmaps.
+- `shared/room.ts` is the room contract (Zod, `.strict()`) and `shared/frame.ts`
+  the binary frame format (`decodeFrame` fully checks one), validated by the
   server and both clients. `server/rooms.ts` (`RoomHub`) only relays: no game
   logic. `server/wsServer.ts` attaches it at `/ws` to the dev server (vite.config)
   and the prod server. Rooms are in memory (one Render instance).
@@ -142,12 +149,14 @@ server/interpretCommand.ts text → Mistral → validated, sanitised CommandPlan
 server/prompts/godCommands.md  system prompt
 server/nodeAdapter.ts     Node http ⇄ web Request/Response (dev + prod)
 server/prodServer.ts      static dist/ (gzip, caching, security headers) + /api + /healthz + /ws
-shared/room.ts            party-room contract (button bits, controller snapshot, messages)
+shared/room.ts            party-room contract (button bits, controller status, messages)
+shared/frame.ts           binary arena frames (encode/validate/decode) streamed to phones
 server/rooms.ts, wsServer.ts  room relay (RoomHub) + WebSocket attach at /ws; lan.ts: LAN IPs for the QR
 src/main.ts               /join → controller, else game
 src/game.ts               Phaser config (960×636: 540 arena + 96 god panel)
 src/controller/           player's controller page (DOM: join form, buttons, HP/weapon/status)
-src/net/hostRoom.ts       host's room connection (players, buttons, sendYou), joinBaseUrl; youState.ts
+src/net/hostRoom.ts       host's room connection (players, buttons, sendYou, sendFrame), joinBaseUrl; youState.ts
+src/net/mirror.ts         copies disasters' drawings into frames
 src/config.ts             tunables: ARENA, FIGHTER, BATTLE (storm, crates), DEPTH
 src/scenes/               Boot, Lobby (add fighters), Battle, Results, ui.ts (buttons, fullscreen)
 src/battle/               types.ts (BattleContext, Target, Attacker), projectiles.ts, geometry.ts
@@ -205,7 +214,7 @@ quick buttons on desktop.
 
 ## Ideas / roadmap
 
-- Party mode: aim stick, emotes from the controller, mirror disasters' own visuals on phones
+- Party mode: aim stick, emotes from the controller, predict your own fighter on the phone (hide latency)
 - Teams mode, more weapons and disasters (zombies, sharks, UFO), slow-mo on the final kill
 - Pixel art
 - Old survival-mode prototype: `old-survival-version.zip` (git-ignored backup)

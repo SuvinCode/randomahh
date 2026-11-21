@@ -10,7 +10,8 @@
  * Space or W to jump, J/K/F to attack.
  */
 import { POWERUPS, WEAPONS_CATALOG, MAX_NAME } from '@shared/commands';
-import { BTN, PlayerToServerSchema, ServerToPlayerSchema, WS_PATH, decode, normalizeCode, type PlayerToServer, type You } from '@shared/room';
+import { decodeFrame } from '@shared/frame';
+import { BTN, MAX_HOST_MESSAGE_BYTES, PlayerToServerSchema, ServerToPlayerSchema, WS_PATH, decode, normalizeCode, type PlayerToServer, type You } from '@shared/room';
 import { ArenaView } from './arenaView';
 import './controller.css';
 
@@ -209,11 +210,18 @@ class Controller {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}${WS_PATH}`);
     this.ws = ws;
+    ws.binaryType = 'arraybuffer';
     ws.onopen = () => {
       this.send({ t: 'join', code: this.code, pid: this.pid, name: this.name });
     };
     ws.onmessage = (e) => {
-      const m = decode(ServerToPlayerSchema, String(e.data));
+      // Binary = an arena frame (shared/frame.ts); everything else is JSON.
+      if (e.data instanceof ArrayBuffer) {
+        const frame = this.view.hasArena ? decodeFrame(new Uint8Array(e.data)) : null;
+        if (frame) this.view.push(frame);
+        return;
+      }
+      const m = decode(ServerToPlayerSchema, String(e.data), MAX_HOST_MESSAGE_BYTES);
       if (!m) return;
       switch (m.t) {
         case 'joined':
@@ -243,9 +251,6 @@ class Controller {
           return;
         case 'roster':
           this.view.setRoster(m);
-          return;
-        case 'snap':
-          if (this.view.hasArena) this.view.push(m);
           return;
         case 'say':
           this.say(m.text, m.color);

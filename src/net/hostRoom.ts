@@ -87,6 +87,11 @@ class HostRoom {
     if (this.players.size) this.send({ t: 'all', m });
   }
 
+  /** Stream an arena frame (binary, shared/frame.ts) to every player. */
+  sendFrame(bytes: Uint8Array<ArrayBuffer>): void {
+    if (this.players.size && this.ws?.readyState === WebSocket.OPEN) this.ws.send(bytes);
+  }
+
   /** Send to one player. */
   sendTo(id: string, m: Feed): void {
     this.send({ t: 'to', id, m });

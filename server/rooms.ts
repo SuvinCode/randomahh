@@ -10,6 +10,7 @@
  *   the host gives it back its fighter.
  */
 import { randomInt } from 'node:crypto';
+import { validFrame } from '../shared/frame';
 import { cleanName } from '../shared/parseCommand';
 import {
   HostToServerSchema,
@@ -23,12 +24,14 @@ import {
 } from '../shared/room';
 
 export interface Conn {
-  send(data: string): void;
+  send(data: string | Uint8Array): void;
   close(): void;
 }
 
 export interface Session {
   message(raw: string): void;
+  /** Binary message: only hosts send these (arena frames, relayed to every player as-is). */
+  binary(bytes: Uint8Array): void;
   closed(): void;
 }
 
@@ -111,6 +114,12 @@ export class RoomHub {
         }
         if (role.kind === 'host') this.fromHost(role.room, conn, raw);
         else this.fromPlayer(role.room, role.pid, conn, raw);
+      },
+      binary: (bytes) => {
+        if (done || role?.kind !== 'host' || role.room.host !== conn) return;
+        if (!bucket(this.opts.hostRate)) return;
+        if (!role.room.players.size || !validFrame(bytes)) return;
+        for (const p of role.room.players.values()) sendRaw(p.conn, bytes);
       },
       closed: () => {
         if (done) return;
@@ -258,7 +267,7 @@ function sendTo(conn: Conn, m: ServerToHost | ServerToPlayer): void {
   sendRaw(conn, JSON.stringify(m));
 }
 
-function sendRaw(conn: Conn, data: string): void {
+function sendRaw(conn: Conn, data: string | Uint8Array): void {
   try {
     conn.send(data);
   } catch {

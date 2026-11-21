@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { DISASTERS, MAX_FIGHTERS, WEAPONS_CATALOG, WEAPON_TYPES, type Action, type DisasterType, type PowerupType, type WeaponType } from '@shared/commands';
-import { FLAG, type Arena, type Snap } from '@shared/room';
+import { FLAG, FRAME_MAGIC, FrameWriter, to15 } from '@shared/frame';
+import type { Arena } from '@shared/room';
 import { uniqueName } from '@shared/names';
 import { parseCommand } from '@shared/parseCommand';
 import { sfx } from '../audio/sfx';
@@ -14,6 +15,7 @@ import { Fighter } from '../fighters/fighter';
 import { Juice } from '../fx';
 import { interpretRemotely } from '../net/commandClient';
 import { hostRoom, type RoomPlayer } from '../net/hostRoom';
+import { writeMirror } from '../net/mirror';
 import { colorHex, waitingYou } from '../net/youState';
 import { fighterColors, hex } from '../textures';
 import { GodBar } from '../ui/godBar';
@@ -95,6 +97,7 @@ export class BattleScene extends Phaser.Scene {
   private unsubscribe: (() => void)[] = [];
   /** Players' arena view: snapshot timer, explosions since the last one, roster needs resending. */
   private snapMs = 0;
+  private readonly frame = new FrameWriter();
   private booms: [number, number, number][] = [];
   private rosterDirty = true;
 
@@ -240,7 +243,7 @@ export class BattleScene extends Phaser.Scene {
     }
     this.snapMs -= dt;
     if (this.snapMs <= 0 && hostRoom.connected().length) {
-      this.snapMs = 66;
+      this.snapMs = 50; // 20 frames a second
       if (this.rosterDirty) {
         this.rosterDirty = false;
         hostRoom.broadcast({
@@ -248,7 +251,7 @@ export class BattleScene extends Phaser.Scene {
           f: this.fighters.slice(-120).map((f) => [f.id, f.name, colorHex(f.color), f.pilot !== null] as [number, string, string, boolean]),
         });
       }
-      hostRoom.broadcast(this.snapshot());
+      hostRoom.sendFrame(this.writeFrame());
     }
     this.syncMs -= dt;
     if (this.syncMs > 0) return;
@@ -302,14 +305,21 @@ export class BattleScene extends Phaser.Scene {
     };
   }
 
-  /** Everything moving, compactly (see SnapSchema). */
-  private snapshot(): Snap {
-    const r = Math.round;
-    const clampN = (v: number) => Math.max(-5000, Math.min(5000, r(v)));
+  /** Everything moving, plus the disasters' drawings, as one binary frame (shared/frame.ts). */
+  private writeFrame(): Uint8Array<ArrayBuffer> {
+    const w = this.frame;
+    w.n = 0;
+    const i16 = (v: number) => (v << 16) >> 16;
+    const t = Math.floor(performance.now()) >>> 0;
     const [zl, zr] = this.zone();
-    const f: Snap['f'] = [];
-    for (const k of this.fighters) {
-      if (!k.alive || f.length >= 120) continue;
+    w.push(FRAME_MAGIC);
+    w.push(i16(t >>> 16));
+    w.push(i16(t & 0xffff));
+    w.push(zl);
+    w.push(zr);
+    const alive = this.fighters.filter((k) => k.alive).slice(0, 120);
+    w.push(alive.length);
+    for (const k of alive) {
       let flags = 0;
       if (k.hidden) flags |= FLAG.hidden;
       if (k.hurtFlash) flags |= FLAG.hurt;
@@ -319,21 +329,48 @@ export class BattleScene extends Phaser.Scene {
       if (k.has('rage')) flags |= FLAG.rage;
       if (k.swingMs > 0 || k.muzzleMs > 0) flags |= FLAG.attacking;
       if (k.pilot && k.buttons === null) flags |= FLAG.autopilot;
-      f.push([k.id, clampN(k.x), clampN(k.y), k.facing, Math.max(0, Math.min(100, Math.ceil(k.hp))), flags, WEAPON_TYPES.indexOf(k.weapon)]);
+      w.push(k.id);
+      w.push(k.x);
+      w.push(k.y);
+      w.push(k.facing);
+      w.push(Math.max(0, Math.min(100, Math.ceil(k.hp))));
+      w.push(flags);
+      w.push(WEAPON_TYPES.indexOf(k.weapon));
     }
-    const b: Snap['b'] = this.bosses
-      .filter((t) => t.alive)
-      .slice(0, 80)
-      .map((t) => {
-        const bb = t.bounds();
-        return [clampN(bb.left), clampN(bb.top), Math.min(5000, r(bb.right - bb.left)), Math.min(5000, r(bb.bottom - bb.top)), t.color & 0xffffff];
-      });
-    const c: Snap['c'] = this.crates.slice(0, 30).map((k) => [r(k.x), r(k.y), k.loot.kind === 'powerup' ? 1 : 0]);
-    const l: Snap['l'] = this.beams
-      .slice(0, 30)
-      .map((k) => [clampN(k.x1), clampN(k.y1), clampN(k.x2), clampN(k.y2), Math.max(1, Math.min(200, r(k.half))), k.color & 0xffffff]);
-    const x = this.booms.splice(0).slice(0, 40);
-    return { t: 'snap', z: [r(zl), r(zr)], f, b, c, p: this.projectiles.snapshot(250).map(([px, py, pc, pr]) => [clampN(px), clampN(py), pc, pr]), l, x };
+    const crates = this.crates.slice(0, 30);
+    w.push(crates.length);
+    for (const c of crates) {
+      w.push(c.x);
+      w.push(c.y);
+      w.push(c.loot.kind === 'powerup' ? 1 : 0);
+    }
+    const shots = this.projectiles.snapshot(300);
+    w.push(shots.length);
+    for (const [px, py, pc, pr] of shots) {
+      w.push(px);
+      w.push(py);
+      w.push(to15(pc));
+      w.push(pr);
+    }
+    const beams = this.beams.slice(0, 30);
+    w.push(beams.length);
+    for (const b of beams) {
+      w.push(b.x1);
+      w.push(b.y1);
+      w.push(b.x2);
+      w.push(b.y2);
+      w.push(Math.max(1, b.half));
+      w.push(to15(b.color));
+    }
+    const booms = this.booms.splice(0).slice(0, 40);
+    w.push(booms.length);
+    for (const [x, y, r] of booms) {
+      w.push(x);
+      w.push(y);
+      w.push(r);
+    }
+    writeMirror(w, this);
+    return w.bytes();
   }
 
   /** Current storm-safe span. Full width until zoneStartMs, then closes toward the middle. */

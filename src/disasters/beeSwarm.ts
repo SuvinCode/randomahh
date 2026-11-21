@@ -88,8 +88,8 @@ export const beeSwarm: DisasterFactory = (ctx, spec) => {
           b.a += b.w * s;
           const bx = sw.x + Math.cos(b.a) * b.r;
           const by = sw.y + Math.sin(b.a * 1.3) * b.r * 0.7;
-          g.fillStyle(0x000000, fade).fillEllipse(bx, by, 10, 7);
-          g.fillStyle(0xffd23f, fade).fillEllipse(bx, by, 7, 4);
+          g.fillStyle(0x000000, fade).fillEllipse(bx, by, 10, 7, 8);
+          g.fillStyle(0xffd23f, fade).fillEllipse(bx, by, 7, 4, 8);
           g.fillStyle(0x000000, fade).fillRect(bx - 1, by - 2, 2, 4);
           g.fillStyle(0xffffff, 0.7 * fade).fillCircle(bx - 1, by - 3, 2);
         }

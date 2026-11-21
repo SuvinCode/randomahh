@@ -1,41 +1,56 @@
 /**
- * The arena on a player's phone, drawn from the host's snapshots (shared/room.ts)
- * with a plain 2D canvas (no Phaser). Positions are smoothed between snapshots.
+ * The arena on a player's phone, drawn from the host's binary frames
+ * (shared/frame.ts) on a plain 2D canvas (no Phaser).
  *
- * Always shows the whole arena (you need to see what's coming), as big as fits
- * under the status bar. Your fighter gets a big bouncing arrow and a white
- * outline; other players are labelled, bots only get health bars (less clutter).
+ * Smooth on shaky networks: frames carry the host's clock, and we play them
+ * back a little behind real time (a jitter buffer), interpolating fighters
+ * between the two frames around the playback time. Bursty delivery then
+ * doesn't show as stutter.
+ *
+ * Cheap to draw: the sky and terrain are drawn once into a layer; the
+ * disasters' drawings (the "mirror", split behind/in front of the fighters)
+ * are replayed into their own layers only when a new frame comes up; emoji
+ * are cached as small bitmaps.
  */
 import { WEAPONS_CATALOG, WEAPON_TYPES } from '@shared/commands';
-import { FLAG, type Arena, type Roster, type Snap } from '@shared/room';
+import { CMD, FLAG, OBJ, OBJ_ARGS, css15, type Frame } from '@shared/frame';
+import type { Arena, Roster } from '@shared/room';
 
 const W = 960;
 const H = 540;
 const FW = 20;
 const FH = 26;
+/** Playback runs at least this far behind the host (ms). */
+const MIN_DELAY = 70;
 
 type Fx = { kind: 'boom' | 'skull'; x: number; y: number; r: number; ms: number };
 
-const rgb = (c: number) => `#${(c & 0xffffff).toString(16).padStart(6, '0')}`;
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const layer = () => document.createElement('canvas');
 
 export class ArenaView {
   private arena: Arena | null = null;
   private roster = new Map<number, { name: string; color: string; player: boolean }>();
-  private prev: Snap | null = null;
-  private cur: Snap | null = null;
-  private curAt = 0;
-  private interval = 66;
+  private frames: Frame[] = [];
+  /** host clock − local clock for the least-delayed recent frame. */
+  private offset: number | null = null;
+  private offsets: number[] = [];
+  /** How late frames typically arrive compared to the best case (ms). */
+  private jitter = 30;
+  private lastShown: Frame | null = null;
   private fx: Fx[] = [];
-  private last = new Map<number, { x: number; y: number }>();
   private lastFrame = 0;
   private readonly ctx: CanvasRenderingContext2D;
+  private readonly world = layer();
+  private readonly back = layer();
+  private readonly front = layer();
+  private worldKey = '';
+  private mirrorOf: Frame | null = null;
+  private readonly emoji = new Map<string, HTMLCanvasElement>();
   /** Your fighter's id (0 = none). */
   me = 0;
   /** Screen px kept clear at the top (status bar). */
   topInset = 0;
-  /** Where the arena ends on screen (css px), after the last draw. */
-  arenaBottom = 0;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -54,43 +69,56 @@ export class ArenaView {
 
   setArena(a: Arena): void {
     this.arena = a;
-    this.prev = this.cur = null;
-    this.fx = [];
-    this.last.clear();
+    this.reset();
+    this.worldKey = '';
   }
 
   clear(): void {
     this.arena = null;
-    this.prev = this.cur = null;
+    this.reset();
+  }
+
+  private reset(): void {
+    this.frames = [];
+    this.offsets = [];
+    this.offset = null;
     this.fx = [];
+    this.lastShown = null;
+    this.mirrorOf = null;
   }
 
   setRoster(r: Roster): void {
     this.roster = new Map(r.f.map(([id, name, color, player]) => [id, { name, color, player }]));
   }
 
-  push(s: Snap): void {
+  push(frame: Frame): void {
     const now = performance.now();
-    if (this.cur) this.interval = lerp(this.interval, Math.min(250, Math.max(30, now - this.curAt)), 0.2);
-    // Someone vanished since the last snapshot: they were knocked out.
-    if (this.cur) {
-      const still = new Set(s.f.map((f) => f[0]));
-      for (const f of this.cur.f) if (!still.has(f[0])) this.fx.push({ kind: 'skull', x: f[1], y: f[2], r: 0, ms: 0 });
+    const newest = this.frames[this.frames.length - 1];
+    // The host's clock jumped (new page, wrap-around): start over.
+    if (newest && (frame.ms <= newest.ms || frame.ms - newest.ms > 5000)) {
+      this.frames = [];
+      this.offsets = [];
     }
-    for (const [x, y, r] of s.x) this.fx.push({ kind: 'boom', x, y, r, ms: 0 });
-    this.prev = this.cur;
-    this.cur = s;
-    this.curAt = now;
+    const off = frame.ms - now;
+    this.offsets.push(off);
+    if (this.offsets.length > 60) this.offsets.shift();
+    this.offset = Math.max(...this.offsets);
+    this.jitter = lerp(this.jitter, Math.min(250, this.offset - off), 0.1);
+    this.frames.push(frame);
+    if (this.frames.length > 40) this.frames.shift();
+    for (const [x, y, r] of frame.x) this.fx.push({ kind: 'boom', x, y, r, ms: 0 });
   }
 
-  /** Position of fighter `id` right now (smoothed), or null. */
-  private fighterAt(id: number, t: number): { x: number; y: number } | null {
-    const c = this.cur?.f.find((f) => f[0] === id);
-    if (!c) return null;
-    const p = this.prev?.f.find((f) => f[0] === id);
-    // Teleports and respawns snap instead of sliding across the arena.
-    if (!p || Math.abs(p[1] - c[1]) + Math.abs(p[2] - c[2]) > 160) return { x: c[1], y: c[2] };
-    return { x: lerp(p[1], c[1], t), y: lerp(p[2], c[2], t) };
+  /** The two frames around the playback time, and how far between them (0..1). */
+  private playback(): { a: Frame; b: Frame; t: number } | null {
+    if (!this.frames.length || this.offset === null) return null;
+    const target = performance.now() + this.offset - Math.max(MIN_DELAY, 40 + this.jitter * 1.5);
+    const fs = this.frames;
+    while (fs.length > 2 && fs[1].ms <= target) fs.shift();
+    const a = fs[0];
+    const b = fs[1] ?? a;
+    if (b === a || target <= a.ms) return { a, b: a, t: 0 };
+    return { a, b, t: Math.min(1, (target - a.ms) / (b.ms - a.ms)) };
   }
 
   // ---------------------------------------------------------------------
@@ -101,27 +129,168 @@ export class ArenaView {
     const cssW = cv.clientWidth;
     const cssH = cv.clientHeight;
     if (!cssW || !cssH) return;
-    if (cv.width !== Math.round(cssW * dpr) || cv.height !== Math.round(cssH * dpr)) {
-      cv.width = Math.round(cssW * dpr);
-      cv.height = Math.round(cssH * dpr);
+    const pw = Math.round(cssW * dpr);
+    const ph = Math.round(cssH * dpr);
+    if (cv.width !== pw || cv.height !== ph) {
+      cv.width = pw;
+      cv.height = ph;
     }
     const g = this.ctx;
     g.setTransform(1, 0, 0, 1, 0, 0);
-    g.clearRect(0, 0, cv.width, cv.height);
+    g.clearRect(0, 0, pw, ph);
     const a = this.arena;
     if (!a) return;
 
-    const t = this.cur ? Math.min(1, (performance.now() - this.curAt) / this.interval) : 1;
-    // ---- camera: the whole arena, as big as fits under the status bar
+    // The whole arena, as big as fits under the status bar.
     const scale = Math.min(cssW / W, (cssH - this.topInset - 4) / H);
-    const ox = (cssW - W * scale) / 2;
-    const oy = this.topInset;
-    this.arenaBottom = oy + H * scale;
+    const ox = Math.round((cssW - W * scale) / 2) * dpr;
+    const oy = Math.round(this.topInset) * dpr;
     const S = scale * dpr;
-    const toScreen = (x: number, y: number) => ({ x: (ox + x * scale) * dpr, y: (oy + y * scale) * dpr });
-    g.setTransform(S, 0, 0, S, ox * dpr, oy * dpr);
+    const aw = Math.round(W * S);
+    const ah = Math.round(H * S);
+    const toScreen = (x: number, y: number) => ({ x: ox + x * S, y: oy + y * S });
 
-    // ---- world
+    // Sky + terrain: drawn once per arena and size.
+    const key = `${a.theme}|${aw}x${ah}`;
+    if (key !== this.worldKey) {
+      this.worldKey = key;
+      this.paintWorld(a, aw, ah, S);
+      this.mirrorOf = null;
+    }
+    g.drawImage(this.world, ox, oy);
+
+    const pb = this.playback();
+    if (!pb) return;
+    const { a: fa, b: fb, t } = pb;
+    if (fa !== this.lastShown) {
+      // Someone in the previous frame is gone: knocked out.
+      if (this.lastShown) {
+        const still = new Set(fa.f.map((f) => f[0]));
+        for (const f of this.lastShown.f) if (!still.has(f[0])) this.fx.push({ kind: 'skull', x: f[1], y: f[2], r: 0, ms: 0 });
+      }
+      this.lastShown = fa;
+    }
+    const pos = (f: number[]) => {
+      const n = fb.f.find((k) => k[0] === f[0]);
+      // Teleports snap instead of sliding across the arena.
+      if (!n || Math.abs(n[1] - f[1]) + Math.abs(n[2] - f[2]) > 160) return { x: f[1], y: f[2] };
+      return { x: lerp(f[1], n[1], t), y: lerp(f[2], n[2], t) };
+    };
+
+    // Disasters' drawings: replayed once per frame into two layers.
+    if (this.mirrorOf !== fa) {
+      this.paintMirror(fa, aw, ah, S);
+      this.mirrorOf = fa;
+    }
+    g.drawImage(this.back, ox, oy);
+
+    g.save();
+    g.setTransform(S, 0, 0, S, ox, oy);
+    g.beginPath();
+    g.rect(0, 0, W, H);
+    g.clip();
+    // Storm
+    const [zl, zr] = fa.zone;
+    if (zl > 1 || zr < W - 1) {
+      g.fillStyle = 'rgba(106,27,154,0.33)';
+      g.fillRect(0, 0, Math.max(0, zl), H);
+      g.fillRect(zr, 0, Math.max(0, W - zr), H);
+      g.strokeStyle = 'rgba(208,168,255,0.9)';
+      g.lineWidth = 3;
+      line(g, zl, 0, zl, H);
+      line(g, zr, 0, zr, H);
+    }
+    for (const [x, y, power] of fa.c) {
+      g.fillStyle = power ? '#7b2cbf' : '#8a5a2b';
+      g.strokeStyle = power ? '#ffd23f' : '#000';
+      g.lineWidth = 2;
+      g.fillRect(x - 11, y - 9, 22, 18);
+      g.strokeRect(x - 11, y - 9, 22, 18);
+    }
+    for (const f of fa.f) this.drawFighter(g, f, pos(f));
+    for (const [x, y, c, r] of fa.p) {
+      g.fillStyle = css15(c);
+      g.beginPath();
+      g.arc(x, y, Math.max(2, r), 0, Math.PI * 2);
+      g.fill();
+    }
+    for (const [x1, y1, x2, y2, half, c] of fa.l) {
+      g.strokeStyle = css15(c, 0.4);
+      g.lineWidth = half * 3;
+      line(g, x1, y1, x2, y2);
+      g.lineWidth = Math.max(1, half);
+      g.strokeStyle = '#fff';
+      line(g, x1, y1, x2, y2);
+    }
+    this.fx = this.fx.filter((e) => (e.ms += dt) < (e.kind === 'boom' ? 380 : 1000));
+    for (const e of this.fx) {
+      if (e.kind !== 'boom') continue;
+      const k = e.ms / 380;
+      g.fillStyle = `rgba(255,179,71,${(1 - k).toFixed(2)})`;
+      g.beginPath();
+      g.arc(e.x, e.y, e.r * (0.4 + 0.6 * k), 0, Math.PI * 2);
+      g.fill();
+    }
+    g.restore();
+    g.drawImage(this.front, ox, oy);
+
+    // ---- labels in screen space (crisp at any zoom)
+    const font = Math.round(Math.max(10, Math.min(13, 11 * scale)) * dpr);
+    g.textAlign = 'center';
+    g.textBaseline = 'bottom';
+    for (const [x, y, power] of fa.c) {
+      if (!power) continue;
+      const p = toScreen(x, y + 5);
+      g.font = `bold ${font}px monospace`;
+      g.fillStyle = '#ffd23f';
+      g.fillText('?', p.x, p.y);
+    }
+    for (const f of fa.f) {
+      const at = pos(f);
+      const info = this.roster.get(f[0]);
+      const mine = f[0] === this.me;
+      if ((f[5] & FLAG.hidden) !== 0 && !mine) continue;
+      const hand = toScreen(at.x + f[3] * 13, at.y + 8);
+      this.drawEmoji(g, WEAPONS_CATALOG[WEAPON_TYPES[f[6]] ?? 'sword'].emoji, hand.x, hand.y, Math.round(font * 1.2));
+      const top = toScreen(at.x, at.y - FH / 2);
+      const bw = 24 * dpr;
+      const hp = f[4] / 100;
+      g.fillStyle = 'rgba(0,0,0,0.7)';
+      g.fillRect(top.x - bw / 2 - dpr, top.y - 6 * dpr, bw + 2 * dpr, 4 * dpr);
+      g.fillStyle = hp > 0.5 ? '#4ade80' : hp > 0.25 ? '#facc15' : '#ef4444';
+      g.fillRect(top.x - bw / 2, top.y - 5 * dpr, bw * hp, 2 * dpr);
+      // Names for people only (bots would clutter a small screen).
+      if (info && (info.player || mine)) {
+        g.font = `${mine ? 'bold ' : ''}${font}px monospace`;
+        g.lineWidth = 3 * dpr;
+        g.strokeStyle = '#000';
+        g.strokeText(info.name, top.x, top.y - 8 * dpr);
+        g.fillStyle = mine ? '#ffd23f' : '#fff';
+        g.fillText(info.name, top.x, top.y - 8 * dpr);
+        const bob = mine ? Math.sin(performance.now() / 160) * 3 * dpr : 0;
+        const ay = top.y - 8 * dpr - font - 3 * dpr + bob;
+        const sz = (mine ? 9 : 5) * dpr;
+        g.fillStyle = '#000';
+        tri(g, top.x, ay + 2 * dpr, sz + 2 * dpr);
+        g.fillStyle = mine ? '#fff' : (f[5] & FLAG.autopilot) !== 0 ? '#8a8aa8' : info.color;
+        tri(g, top.x, ay, sz);
+      }
+    }
+    for (const e of this.fx) {
+      if (e.kind !== 'skull') continue;
+      const p = toScreen(e.x, e.y - (e.ms / 1000) * 40);
+      g.globalAlpha = 1 - e.ms / 1000;
+      this.drawEmoji(g, '💀', p.x, p.y, Math.round(font * 1.6));
+      g.globalAlpha = 1;
+    }
+  }
+
+  private paintWorld(a: Arena, aw: number, ah: number, S: number): void {
+    const c = this.world;
+    c.width = aw;
+    c.height = ah;
+    const g = c.getContext('2d')!;
+    g.setTransform(S, 0, 0, S, 0, 0);
     const sky = g.createLinearGradient(0, 0, 0, H);
     sky.addColorStop(0, a.sky);
     sky.addColorStop(1, shade(a.sky, -0.35));
@@ -129,136 +298,113 @@ export class ArenaView {
     g.fillRect(0, 0, W, H);
     for (const [x, y, w, h] of a.solid) block(g, x, y, w, h, a.ground, 6);
     for (const [x, y, w, h] of a.ledges) block(g, x, y, w, h, a.platform, 4);
+  }
 
-    const s = this.cur;
-    if (s) {
-      // Storm
-      const [zl, zr] = s.z;
-      if (zl > 1 || zr < W - 1) {
-        g.fillStyle = 'rgba(106,27,154,0.33)';
-        g.fillRect(0, 0, Math.max(0, zl), H);
-        g.fillRect(zr, 0, Math.max(0, W - zr), H);
-        g.strokeStyle = 'rgba(208,168,255,0.9)';
-        g.lineWidth = 3;
-        line(g, zl, 0, zl, H);
-        line(g, zr, 0, zr, H);
-      }
-      // Crates
-      for (const [x, y, power] of s.c) {
-        g.fillStyle = power ? '#7b2cbf' : '#8a5a2b';
-        g.strokeStyle = power ? '#ffd23f' : '#000';
-        g.lineWidth = 2;
-        g.fillRect(x - 11, y - 9, 22, 18);
-        g.strokeRect(x - 11, y - 9, 22, 18);
-      }
-      // Bosses / minions (interpolated by index when the list is stable)
-      const pb = this.prev && this.prev.b.length === s.b.length ? this.prev.b : null;
-      s.b.forEach(([x, y, w, h, c], i) => {
-        const bx = pb ? lerp(pb[i][0], x, t) : x;
-        const by = pb ? lerp(pb[i][1], y, t) : y;
-        g.fillStyle = '#000';
-        roundRect(g, bx - 1, by - 1, w + 2, h + 2, 5);
-        g.fillStyle = rgb(c);
-        roundRect(g, bx, by, w, h, 4);
-      });
-      // Fighters
-      for (const f of s.f) this.drawFighter(g, f, t);
-      // Projectiles
-      for (const [x, y, c, r] of s.p) {
-        g.fillStyle = rgb(c);
-        g.beginPath();
-        g.arc(x, y, Math.max(2, r), 0, Math.PI * 2);
-        g.fill();
-      }
-      // Beams
-      for (const [x1, y1, x2, y2, half, c] of s.l) {
-        g.strokeStyle = rgb(c);
-        g.globalAlpha = 0.4;
-        g.lineWidth = half * 3;
-        line(g, x1, y1, x2, y2);
-        g.globalAlpha = 1;
-        g.lineWidth = Math.max(1, half);
-        g.strokeStyle = '#fff';
-        line(g, x1, y1, x2, y2);
-      }
+  /** Replay the disasters' drawings exactly as the host drew them: behind the fighters, then (after OBJ.front) in front. */
+  private paintMirror(f: Frame, aw: number, ah: number, S: number): void {
+    for (const c of [this.back, this.front]) {
+      if (c.width !== aw || c.height !== ah) {
+        c.width = aw;
+        c.height = ah;
+      } else c.getContext('2d')!.clearRect(0, 0, aw, ah);
     }
-    // Effects
-    this.fx = this.fx.filter((e) => (e.ms += dt) < (e.kind === 'boom' ? 380 : 1000));
-    for (const e of this.fx) {
-      if (e.kind !== 'boom') continue;
-      const k = e.ms / 380;
-      g.globalAlpha = 1 - k;
-      g.fillStyle = '#ffb347';
-      g.beginPath();
-      g.arc(e.x, e.y, e.r * (0.4 + 0.6 * k), 0, Math.PI * 2);
-      g.fill();
-      g.globalAlpha = 1;
-    }
-
-    // ---- screen-space labels (crisp at any zoom)
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    const font = Math.round(Math.max(10, Math.min(13, 11 * scale)) * dpr);
-    g.textAlign = 'center';
-    g.textBaseline = 'bottom';
-    if (s) {
-      for (const [x, y, power] of s.c) {
-        const p = toScreen(x, y + 5);
-        g.font = `bold ${font}px monospace`;
-        g.fillStyle = '#ffd23f';
-        if (power) g.fillText('?', p.x, p.y);
-      }
-      for (const f of s.f) {
-        const pos = this.fighterAt(f[0], t)!;
-        const info = this.roster.get(f[0]);
-        const hidden = (f[5] & FLAG.hidden) !== 0;
-        const mine = f[0] === this.me;
-        if (hidden && !mine) continue;
-        // Weapon
-        const hand = toScreen(pos.x + f[3] * 13, pos.y + 7);
-        g.font = `${Math.round(font * 1.15)}px sans-serif`;
-        g.fillText(WEAPONS_CATALOG[WEAPON_TYPES[f[6]] ?? 'sword'].emoji, hand.x, hand.y);
-        // HP bar, and a name for people (bots stay unlabelled on a small screen)
-        const top = toScreen(pos.x, pos.y - FH / 2);
-        const bw = 24 * dpr;
-        const pct = f[4] / 100;
-        g.fillStyle = 'rgba(0,0,0,0.7)';
-        g.fillRect(top.x - bw / 2 - dpr, top.y - 6 * dpr, bw + 2 * dpr, 4 * dpr);
-        g.fillStyle = pct > 0.5 ? '#4ade80' : pct > 0.25 ? '#facc15' : '#ef4444';
-        g.fillRect(top.x - bw / 2, top.y - 5 * dpr, bw * pct, 2 * dpr);
-        if (info && (info.player || mine)) {
-          g.font = `${mine ? 'bold ' : ''}${font}px monospace`;
-          g.lineWidth = 3 * dpr;
-          g.strokeStyle = '#000';
-          g.strokeText(info.name, top.x, top.y - 8 * dpr);
-          g.fillStyle = mine ? '#ffd23f' : '#fff';
-          g.fillText(info.name, top.x, top.y - 8 * dpr);
-        }
-        // Players get an arrow; yours is big and bouncy.
-        if (info?.player || mine) {
-          const bob = mine ? Math.sin(performance.now() / 160) * 3 * dpr : 0;
-          const ay = top.y - 8 * dpr - font - 3 * dpr + bob;
-          const sz = (mine ? 9 : 5) * dpr;
-          const col = (f[5] & FLAG.autopilot) !== 0 ? '#8a8aa8' : (info?.color ?? '#fff');
-          g.fillStyle = '#000';
-          tri(g, top.x, ay + 2 * dpr, sz + 2 * dpr);
-          g.fillStyle = mine ? '#fff' : col;
-          tri(g, top.x, ay, sz);
+    const m = f.mirror;
+    if (!m.length) return;
+    let g = this.back.getContext('2d')!;
+    const start = (ctx: CanvasRenderingContext2D) => {
+      ctx.setTransform(S, 0, 0, S, 0, 0);
+      ctx.lineJoin = 'round';
+      ctx.globalAlpha = 1;
+    };
+    start(g);
+    const alphas: number[] = [];
+    let alpha = 1;
+    try {
+      for (let i = 0; i < m.length; ) {
+        const op = m[i++];
+        const v = m.subarray(i, i + OBJ_ARGS[op]);
+        i += OBJ_ARGS[op];
+        switch (op) {
+          case OBJ.front:
+            g = this.front.getContext('2d')!;
+            start(g);
+            break;
+          case OBJ.push:
+            g.save();
+            g.translate(v[0], v[1]);
+            g.rotate(v[2] / 1000);
+            g.scale(v[3] / 100, v[4] / 100);
+            alphas.push(alpha);
+            alpha *= v[5] / 1000;
+            break;
+          case OBJ.pop:
+            g.restore();
+            alpha = alphas.pop() ?? 1;
+            break;
+          case OBJ.graphics: {
+            const n = v[6];
+            g.save();
+            g.translate(v[0], v[1]);
+            g.rotate(v[2] / 1000);
+            g.scale(v[3] / 100, v[4] / 100);
+            g.globalAlpha = alpha * (v[5] / 1000);
+            replay(g, m, i, i + n);
+            g.restore();
+            i += n;
+            break;
+          }
+          case OBJ.text: {
+            const n = v[10];
+            let text = '';
+            for (let k = 0; k < n; k++) text += String.fromCharCode(m[i + k] & 0xffff);
+            i += n;
+            g.save();
+            g.translate(v[0], v[1]);
+            g.rotate(v[9] / 1000);
+            g.globalAlpha = alpha * (v[8] / 1000);
+            g.font = `bold ${v[4]}px monospace`;
+            g.textAlign = 'left';
+            g.textBaseline = 'middle';
+            const tw = g.measureText(text).width;
+            const x = -tw * (v[2] / 100);
+            const y = v[4] * (0.5 - v[3] / 100);
+            if (v[7] > 0) {
+              g.lineWidth = v[7];
+              g.strokeStyle = css15(v[6]);
+              g.strokeText(text, x, y);
+            }
+            g.fillStyle = css15(v[5]);
+            g.fillText(text, x, y);
+            g.restore();
+            break;
+          }
+          case OBJ.rect:
+            g.save();
+            g.translate(v[0], v[1]);
+            g.rotate(v[9] / 1000);
+            g.globalAlpha = alpha * (v[8] / 1000);
+            g.fillStyle = css15(v[6], v[7] / 1000);
+            g.fillRect(-v[2] * (v[4] / 100), -v[3] * (v[5] / 100), v[2], v[3]);
+            g.restore();
+            break;
+          case OBJ.circle:
+            g.save();
+            g.globalAlpha = alpha * (v[5] / 1000);
+            g.fillStyle = css15(v[3], v[4] / 1000);
+            g.beginPath();
+            g.arc(v[0], v[1], Math.max(0, v[2]), 0, Math.PI * 2);
+            g.fill();
+            g.restore();
+            break;
         }
       }
-    }
-    for (const e of this.fx) {
-      if (e.kind !== 'skull') continue;
-      const p = toScreen(e.x, e.y - (e.ms / 1000) * 40);
-      g.globalAlpha = 1 - e.ms / 1000;
-      g.font = `${Math.round(font * 1.6)}px sans-serif`;
-      g.fillText('💀', p.x, p.y);
-      g.globalAlpha = 1;
+    } catch (err) {
+      console.warn('[arena] bad drawing skipped', err);
     }
   }
 
-  private drawFighter(g: CanvasRenderingContext2D, f: Snap['f'][number], t: number): void {
+  private drawFighter(g: CanvasRenderingContext2D, f: number[], pos: { x: number; y: number }): void {
     const [id, , , facing, , flags] = f;
-    const pos = this.fighterAt(id, t)!;
     const info = this.roster.get(id);
     const mine = id === this.me;
     const color = info?.color ?? '#cccccc';
@@ -282,7 +428,7 @@ export class ArenaView {
       g.lineTo(pos.x + 8, pos.y + 4);
       g.fill();
     }
-    // Body: a little bean with a headband and eyes, like the host's.
+    // A little bean with a headband and eyes, like on the big screen.
     g.fillStyle = mine ? '#fff' : '#000';
     roundRect(g, x - (mine ? 1 : 0), y - (mine ? 1 : 0), FW + (mine ? 2 : 0), FH + (mine ? 2 : 0), 7);
     g.fillStyle = (flags & FLAG.hurt) !== 0 ? '#ff7070' : (flags & FLAG.chilled) !== 0 ? '#9fd8ff' : color;
@@ -311,6 +457,101 @@ export class ArenaView {
       g.stroke();
     }
     g.globalAlpha = 1;
+  }
+
+  /** Emoji are slow to draw as text on phones: render each once, then blit. */
+  private drawEmoji(g: CanvasRenderingContext2D, e: string, x: number, y: number, size: number): void {
+    const key = `${e}|${size}`;
+    let c = this.emoji.get(key);
+    if (!c) {
+      c = layer();
+      c.width = c.height = Math.ceil(size * 1.4);
+      const cg = c.getContext('2d')!;
+      cg.font = `${size}px sans-serif`;
+      cg.textAlign = 'center';
+      cg.textBaseline = 'middle';
+      cg.fillText(e, c.width / 2, c.height / 2 + size * 0.05);
+      if (this.emoji.size > 200) this.emoji.clear();
+      this.emoji.set(key, c);
+    }
+    g.drawImage(c, x - c.width / 2, y - c.height);
+  }
+}
+
+/** Run a Graphics command stream (shared/frame.ts CMD) on a canvas. Already validated. */
+function replay(g: CanvasRenderingContext2D, m: Int16Array, i: number, end: number): void {
+  while (i < end) {
+    const op = m[i++];
+    switch (op) {
+      case CMD.arc:
+        g.arc(m[i], m[i + 1], Math.max(0, m[i + 2]), m[i + 3] / 1000, m[i + 4] / 1000, m[i + 5] === 1);
+        i += 6;
+        break;
+      case CMD.begin:
+        g.beginPath();
+        break;
+      case CMD.close:
+        g.closePath();
+        break;
+      case CMD.fillRect:
+        g.fillRect(m[i], m[i + 1], m[i + 2], m[i + 3]);
+        i += 4;
+        break;
+      case CMD.lineTo:
+        g.lineTo(m[i], m[i + 1]);
+        i += 2;
+        break;
+      case CMD.moveTo:
+        g.moveTo(m[i], m[i + 1]);
+        i += 2;
+        break;
+      case CMD.lineStyle:
+        g.lineWidth = m[i] / 10;
+        g.strokeStyle = css15(m[i + 1], m[i + 2] / 1000);
+        i += 3;
+        break;
+      case CMD.fillStyle:
+        g.fillStyle = css15(m[i], m[i + 1] / 1000);
+        i += 2;
+        break;
+      case CMD.fillPath:
+        g.fill();
+        break;
+      case CMD.strokePath:
+        g.stroke();
+        break;
+      case CMD.fillTri:
+      case CMD.strokeTri:
+        g.beginPath();
+        g.moveTo(m[i], m[i + 1]);
+        g.lineTo(m[i + 2], m[i + 3]);
+        g.lineTo(m[i + 4], m[i + 5]);
+        g.closePath();
+        if (op === CMD.fillTri) g.fill();
+        else g.stroke();
+        i += 6;
+        break;
+      case CMD.save:
+        g.save();
+        break;
+      case CMD.restore:
+        g.restore();
+        break;
+      case CMD.translate:
+        g.translate(m[i], m[i + 1]);
+        i += 2;
+        break;
+      case CMD.scale:
+        g.scale(m[i] / 100, m[i + 1] / 100);
+        i += 2;
+        break;
+      case CMD.rotate:
+        g.rotate(m[i] / 1000);
+        i += 1;
+        break;
+      default:
+        return;
+    }
   }
 }
 
@@ -351,5 +592,6 @@ function tri(g: CanvasRenderingContext2D, x: number, y: number, size: number): v
 function shade(hex: string, k: number): string {
   const n = parseInt(hex.slice(1), 16);
   const ch = (v: number) => Math.round(k < 0 ? v * (1 + k) : v + (255 - v) * k);
-  return rgb((ch((n >> 16) & 255) << 16) | (ch((n >> 8) & 255) << 8) | ch(n & 255));
+  const c = (ch((n >> 16) & 255) << 16) | (ch((n >> 8) & 255) << 8) | ch(n & 255);
+  return `#${c.toString(16).padStart(6, '0')}`;
 }

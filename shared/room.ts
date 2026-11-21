@@ -17,8 +17,8 @@ export const ROOM_CODE_RE = /^[A-HJ-NP-Z]{4}$/;
 export const MAX_ROOM_PLAYERS = 24;
 /** Bigger messages from players are dropped. */
 export const MAX_MESSAGE_BYTES = 1024;
-/** The host also streams arena snapshots, which are bigger. */
-export const MAX_HOST_MESSAGE_BYTES = 32 * 1024;
+/** The host's JSON messages (arena layout, roster) can be bigger. */
+export const MAX_HOST_MESSAGE_BYTES = 16 * 1024;
 /** WebSocket path on the same origin as the game. */
 export const WS_PATH = '/ws';
 
@@ -56,13 +56,13 @@ export const YouSchema = z
 export type You = z.infer<typeof YouSchema>;
 
 // ---------------------------------------------------------------------------
-// Live arena view on the controllers (the host streams what's happening).
+// Live arena view on the controllers. The fast-moving part (fighters, shots,
+// disasters' drawings) streams as binary frames: see shared/frame.ts.
 // Coordinates are arena pixels (960×540), rounded to integers.
 
 const Hex = z.string().regex(/^#[0-9a-f]{6}$/i);
 const N = z.number().int().min(-5000).max(5000);
-const Id = z.number().int().min(0).max(1_000_000);
-const Color = z.number().int().min(0).max(0xffffff);
+const Id = z.number().int().min(0).max(32_767);
 const Rect = z.tuple([N, N, N, N]);
 
 /** The arena's look and terrain: sent when a battle starts (and to anyone who joins). */
@@ -91,38 +91,11 @@ export const RosterSchema = z
   .strict();
 export type Roster = z.infer<typeof RosterSchema>;
 
-/** Fighter flags in snapshots. */
-export const FLAG = { hidden: 1, hurt: 2, shield: 4, flying: 8, chilled: 16, rage: 32, attacking: 64, autopilot: 128 } as const;
-
-const Small = (max: number) => z.number().int().min(0).max(max);
-
-/** One moment of the battle, ~15 times a second. */
-export const SnapSchema = z
-  .object({
-    t: z.literal('snap'),
-    /** Storm-safe span [left, right]. */
-    z: z.tuple([N, N]),
-    /** Living fighters: [id, x (centre), y (centre), facing ±1, hp, FLAG bits, weapon index]. */
-    f: z.array(z.tuple([Id, N, N, z.number().int().min(-1).max(1), Small(100), Small(255), Small(31)])).max(120),
-    /** Bosses and minions (Dr Doom, zombies): [x, y, w, h, colour] (top-left box). */
-    b: z.array(z.tuple([N, N, N, N, Color])).max(80),
-    /** Crates: [x, y, 1 = mystery powerup / 0 = weapon]. */
-    c: z.array(z.tuple([N, N, Small(1)])).max(30),
-    /** Projectiles: [x, y, colour, radius]. */
-    p: z.array(z.tuple([N, N, Color, z.number().int().min(1).max(40)])).max(250),
-    /** Beams drawn this moment: [x1, y1, x2, y2, half-width, colour]. */
-    l: z.array(z.tuple([N, N, N, N, z.number().int().min(1).max(200), Color])).max(30),
-    /** Explosions since the last snapshot: [x, y, radius]. */
-    x: z.array(z.tuple([N, N, z.number().int().min(1).max(2000)])).max(40),
-  })
-  .strict();
-export type Snap = z.infer<typeof SnapSchema>;
-
 /** A big announcement ("DOUBLE KILL!", "🌪️ Tornado!"). */
 export const SaySchema = z.object({ t: z.literal('say'), text: z.string().max(80), color: Hex }).strict();
 
 /** Anything the host may send to players. */
-export const FeedSchema = z.discriminatedUnion('t', [YouSchema, ArenaSchema, RosterSchema, SnapSchema, SaySchema]);
+export const FeedSchema = z.discriminatedUnion('t', [YouSchema, ArenaSchema, RosterSchema, SaySchema]);
 export type Feed = z.infer<typeof FeedSchema>;
 
 // ---------------------------------------------------------------------------
@@ -143,7 +116,6 @@ export const ServerToPlayerSchema = z.discriminatedUnion('t', [
   YouSchema,
   ArenaSchema,
   RosterSchema,
-  SnapSchema,
   SaySchema,
 ]);
 export type ServerToPlayer = z.infer<typeof ServerToPlayerSchema>;
@@ -156,7 +128,7 @@ export const HostToServerSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('open'), resume: z.object({ code: Code, token: Token }).strict().optional() }).strict(),
   /** To one player. */
   z.object({ t: z.literal('to'), id: PlayerId, m: FeedSchema }).strict(),
-  /** To every player in the room (arena snapshots). */
+  /** To every player in the room. (Arena frames go as binary messages: shared/frame.ts.) */
   z.object({ t: z.literal('all'), m: FeedSchema }).strict(),
   z.object({ t: z.literal('kick'), id: PlayerId, reason: z.string().max(120) }).strict(),
 ]);
