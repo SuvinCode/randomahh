@@ -81,8 +81,15 @@ function rank(entries: Entry[], typed: string): Entry[] {
     .filter((e) => (seen.has(e.text) ? false : (seen.add(e.text), true)));
 }
 
-/** Make a suggester for the current fighters. Cheap to call per keystroke. */
-export function makeSuggester(fighters: readonly string[]): (input: string) => Suggestion[] {
+const POWERUP_HINTS = new Set(['Powerup', ...POWERUP_TYPES.map((p) => POWERUPS[p].name)]);
+
+/**
+ * Make a suggester for the current fighters. Cheap to call per keystroke.
+ * `powerups: false` / `weapons: false` leave those out (when the game has them switched off).
+ */
+export function makeSuggester(fighters: readonly string[], opts: { powerups?: boolean; weapons?: boolean } = {}): (input: string) => Suggestion[] {
+  const allowed = (e: Entry) =>
+    (opts.powerups !== false || !POWERUP_HINTS.has(e.hint)) && (opts.weapons !== false || e.hint !== 'Weapon');
   const people = new Trie<Entry>();
   for (const name of fighters) people.insert(name, { text: name, emoji: '🧍', hint: 'fighter', weight: 5 });
   people.insert('everyone', { text: 'everyone', emoji: '👥', hint: 'all fighters', weight: 6 });
@@ -96,7 +103,7 @@ export function makeSuggester(fighters: readonly string[]): (input: string) => S
     if (!clause) return [];
 
     const out = (prefix: string, typed: string, trie: Trie<Entry>, suffix = ''): Suggestion[] =>
-      rank(trie.withPrefix(typed), typed)
+      rank(trie.withPrefix(typed).filter(allowed), typed)
         .slice(0, MAX)
         .map((e) => ({ full: head + prefix + e.text + suffix, emoji: e.emoji, hint: e.hint }));
 

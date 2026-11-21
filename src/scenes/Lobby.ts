@@ -3,7 +3,7 @@ import qrcode from 'qrcode-generator';
 import { MAX_FIGHTERS } from '@shared/commands';
 import { addNames, randomNames } from '@shared/names';
 import { sfx } from '../audio/sfx';
-import { ARENA, GAME_HEIGHT, REGISTRY_KEYS } from '../config';
+import { ARENA, COMBAT_ENABLED, GAME_HEIGHT, REGISTRY_KEYS } from '../config';
 import { hostRoom, joinBaseUrl } from '../net/hostRoom';
 import { waitingYou } from '../net/youState';
 import { fighterColors } from '../textures';
@@ -71,7 +71,7 @@ export class LobbyScene extends Phaser.Scene {
     this.names = (this.registry.get(REGISTRY_KEYS.roster) as string[] | undefined) ?? loadRoster();
     const cx = ARENA.width / 2;
     title(this, cx, 52, 'RANDOM AHH', 64, '#ffd23f');
-    title(this, cx, 104, 'scan to play from your phone · or add bots · then play god', 18, '#c9c9e0');
+    title(this, cx, 104, COMBAT_ENABLED ? 'scan to play from your phone · or add bots · then play god' : 'scan to join · survive the disasters · you play god', 18, '#c9c9e0');
 
     const html = `
       <div class="lobby-wrap"><style>${CSS}</style>
@@ -229,7 +229,9 @@ export class LobbyScene extends Phaser.Scene {
   private renderParty(): void {
     const { qr, code, url, hint } = this.els;
     const base = this.joinBase;
-    const keys = 'Phones: ◀ ▶ jump · attack buttons<br>Laptops: WASD / arrows · J to attack';
+    const keys = COMBAT_ENABLED
+      ? 'Phones: ◀ ▶ jump · attack buttons<br>Laptops: WASD / arrows · J to attack'
+      : 'Dodge the disasters!<br>Phones: ◀ ▶ + jump · Laptops: WASD / arrows';
     if (hostRoom.status !== 'open' || !hostRoom.code) {
       code.textContent = '····';
       qr.textContent = hostRoom.status === 'offline' ? 'Room server unreachable. Retrying…' : 'Opening a room…';

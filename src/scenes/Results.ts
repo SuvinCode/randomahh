@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { sfx } from '../audio/sfx';
-import { ARENA, GAME_HEIGHT } from '../config';
+import { ARENA, COMBAT_ENABLED, GAME_HEIGHT } from '../config';
 import { hostRoom } from '../net/hostRoom';
 import { waitingYou } from '../net/youState';
 import { button, onKey, title } from './ui';
@@ -29,7 +29,7 @@ export class ResultsScene extends Phaser.Scene {
       title(this, cx, 60, '🏆 WINNER 🏆', 26, '#ffd23f');
       const name = title(this, cx, 118, data.winner.name, 58, css(data.winner.color)).setScale(0.3);
       this.tweens.add({ targets: name, scale: 1, duration: 450, ease: 'Back.Out' });
-      title(this, cx, 168, `${data.winner.kills} kill${data.winner.kills === 1 ? '' : 's'} · ${data.winner.hp} HP left`, 18, '#c9c9e0');
+      title(this, cx, 168, COMBAT_ENABLED ? `${data.winner.kills} kill${data.winner.kills === 1 ? '' : 's'} · ${data.winner.hp} HP left` : `Survived everything · ${data.winner.hp} HP left`, 18, '#c9c9e0');
     } else {
       title(this, cx, 100, 'NOBODY SURVIVED', 50, '#ff5d73');
       title(this, cx, 158, 'the disasters win this one', 18, '#c9c9e0');
@@ -46,10 +46,10 @@ export class ResultsScene extends Phaser.Scene {
       const medal = ['🥇', '🥈', '🥉'][i] ?? `#${i + 1}`;
       this.add.text(x, y, medal, { fontFamily: 'monospace', fontSize: '16px', color: '#ffffff' });
       this.add.text(x + 40, y, p.name, { fontFamily: 'monospace', fontSize: '16px', fontStyle: 'bold', color: css(p.color), stroke: '#000000', strokeThickness: 3 });
-      this.add.text(x + 225, y, `${p.kills} 💀`, { fontFamily: 'monospace', fontSize: '14px', color: '#c9c9e0' }).setOrigin(1, 0);
+      if (COMBAT_ENABLED) this.add.text(x + 225, y, `${p.kills} 💀`, { fontFamily: 'monospace', fontSize: '14px', color: '#c9c9e0' }).setOrigin(1, 0);
     });
     const top = [...data.placements].sort((a, b) => b.kills - a.kills)[0];
-    if (top && top.kills > 0) title(this, cx, 425, `Most kills: ${top.name} (${top.kills})`, 16, css(top.color));
+    if (COMBAT_ENABLED && top && top.kills > 0) title(this, cx, 425, `Most kills: ${top.name} (${top.kills})`, 16, css(top.color));
 
     const rematch = () => {
       sfx.play('click');

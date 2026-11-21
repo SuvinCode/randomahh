@@ -2,6 +2,7 @@ import type Phaser from 'phaser';
 import type { BattleContext, Target } from '../battle/types';
 import type { Rect } from '../world/buildTerrain';
 import { inRange } from '../weapons/attack';
+import { COMBAT_ENABLED } from '../config';
 import { WEAPONS } from '../weapons/defs';
 import type { Fighter } from './fighter';
 
@@ -73,7 +74,8 @@ export function think(f: Fighter, ctx: BattleContext, dt: number): Plan {
   b.modeMs -= dt;
   if (b.modeMs <= 0) {
     b.modeMs = rng.between(1200, 3600);
-    b.mode = rng.frac() < b.aggression ? 'hunt' : 'wander';
+    // Survival mode: nobody can hurt anybody, so just roam around.
+    b.mode = COMBAT_ENABLED && rng.frac() < b.aggression ? 'hunt' : 'wander';
     b.wanderX = rng.between(30, 930);
     b.flyY = rng.between(70, ctx.floorY - 60);
     // Sometimes go grab a crate that's not too far away.

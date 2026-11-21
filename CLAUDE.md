@@ -27,6 +27,16 @@ grey ghost text (Tab / → accepts) and a list above the box (↑↓ + Enter, or
 It completes the last clause, keeps counts, and slots in fighter names and
 give-able items. Picking a finished suggestion runs it.
 
+## Current mode: survival (switches in src/config.ts)
+
+Right now the game runs as **survival**: `COMBAT_ENABLED = false` (nobody,
+player or bot, attacks; bots just roam; no weapons drawn, no crates, weapon
+commands/suggestions/quick button hidden, the god box explains) and
+`POWERUPS_ENABLED = false`. The only danger is the host's disasters and the
+storm, which in survival closes **completely** so every battle ends. Phones
+show only ◀ ▶ and Jump. Flip both to true for the original brawl (everything
+described below about weapons, crates and powerups still exists in the code).
+
 ## Party mode (phones join by QR code)
 
 The lobby opens a **party room** automatically and shows a QR code + 4-letter
@@ -59,8 +69,8 @@ the rest of the roster. The host starts the battle and just watches / plays god.
   brain (grey arrow over it). Late joiners drop into a running battle.
 - `Fighter.pilot` = player id; `Fighter.buttons` (null = brain drives) is set by
   Battle each frame. `Fighter.manual()` turns buttons into a `Plan` (hold jump
-  to hop; flying: jump rises, down sinks; attack auto-aims at the nearest foe in
-  front, else straight ahead).
+  to hop; attack auto-aims at the nearest foe in front, else straight ahead).
+  With powerups turned back on, only bots get them (`Fighter.canPowerUp`).
 - `/join` loads `src/controller/` (plain DOM, no Phaser); everything else loads
   `src/game.ts`. Controls: phone (landscape) ◀ ▶ bottom-left (slide between
   them), attack + jump bottom-right, ▼ while flying; laptop WASD/arrows,

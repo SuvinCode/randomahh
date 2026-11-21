@@ -8,7 +8,7 @@ import { sfx } from '../audio/sfx';
 import { boxHitsCircle, boxHitsRect, boxHitsSegment } from '../battle/geometry';
 import { Projectiles } from '../battle/projectiles';
 import type { Attacker, BattleContext, HitOptions, PaletteColors, Target } from '../battle/types';
-import { ARENA, BATTLE, DEPTH, FIGHTER, GAME_HEIGHT, REGISTRY_KEYS } from '../config';
+import { ARENA, BATTLE, COMBAT_ENABLED, DEPTH, FIGHTER, GAME_HEIGHT, POWERUPS_ENABLED, REGISTRY_KEYS } from '../config';
 import { disasterRegistry } from '../disasters/registry';
 import type { Disaster } from '../disasters/types';
 import { Fighter } from '../fighters/fighter';
@@ -167,7 +167,7 @@ export class BattleScene extends Phaser.Scene {
     // Phones show the arena too: terrain now, then live snapshots (updatePlayers).
     hostRoom.broadcast(this.arenaFeed());
     this.hud.onAnnounce = (text, color) => hostRoom.broadcast({ t: 'say', text: text.slice(0, 80), color: colorHex(color) });
-    this.hud.announce('FIGHT!', 0xffd23f, 44);
+    this.hud.announce(COMBAT_ENABLED ? 'FIGHT!' : 'SURVIVE!', 0xffd23f, 44);
     this.god.setStatus('Type a disaster, or tap one below.');
     sfx.play('spawn');
 
@@ -270,7 +270,7 @@ export class BattleScene extends Phaser.Scene {
       if (won) msg = 'YOU WIN! Last one standing.';
       else if (done) msg = `💀 Knocked out by ${done.by} (of ${this.totalFighters} fighters)`;
       else if (this.ending) msg = 'Battle over!';
-      else msg = alive <= 3 ? `🔥 Final ${alive}!` : 'Fight! Last one standing wins.';
+      else msg = alive <= 3 ? `🔥 Final ${alive}!` : COMBAT_ENABLED ? 'Fight! Last one standing wins.' : 'Dodge the disasters! Last one standing wins.';
       hostRoom.sendYou(pl.id, {
         t: 'you',
         name: f.name,
@@ -376,7 +376,8 @@ export class BattleScene extends Phaser.Scene {
   /** Current storm-safe span. Full width until zoneStartMs, then closes toward the middle. */
   private zone(): [number, number] {
     const t = Phaser.Math.Clamp((this.elapsed - BATTLE.zoneStartMs) / (BATTLE.zoneEndMs - BATTLE.zoneStartMs), 0, 1);
-    const half = Phaser.Math.Linear(ARENA.width / 2, BATTLE.zoneMinWidth / 2, t);
+    // Survival mode: the storm closes completely, so a battle always ends.
+    const half = Phaser.Math.Linear(ARENA.width / 2, (COMBAT_ENABLED ? BATTLE.zoneMinWidth : 0) / 2, t);
     return [ARENA.width / 2 - half, ARENA.width / 2 + half];
   }
 
@@ -466,8 +467,8 @@ export class BattleScene extends Phaser.Scene {
     const names = this.fighters.filter((f) => f.alive).map((f) => f.name);
     const local = parseCommand(text, names);
     if (local) {
-      this.apply(local.actions);
-      this.god.setStatus(local.message, '#ffd23f');
+      const note = this.apply(local.actions);
+      this.god.setStatus(note ?? local.message, note ? '#ff8a8a' : '#ffd23f');
       return;
     }
     this.god.setBusy(true);
@@ -483,13 +484,14 @@ export class BattleScene extends Phaser.Scene {
       this.god.setStatus(res.plan.message || 'Nothing happened. Try: tornado, asteroids…', '#ff8a8a');
       return;
     }
-    this.apply(res.plan.actions);
-    this.god.setStatus(res.plan.message || 'Done!', '#ffd23f');
+    const note = this.apply(res.plan.actions);
+    this.god.setStatus(note ?? (res.plan.message || 'Done!'), note ? '#ff8a8a' : '#ffd23f');
   }
 
-  /** Carry out validated actions. */
-  apply(actions: readonly Action[], fromChip = false): void {
-    if (this.ending) return;
+  /** Carry out validated actions. Returns a note for the god box when something couldn't be done. */
+  apply(actions: readonly Action[], fromChip = false): string | null {
+    if (this.ending) return null;
+    let note: string | null = null;
     for (const a of actions) {
       switch (a.type) {
         case 'add_fighter': {
@@ -504,7 +506,9 @@ export class BattleScene extends Phaser.Scene {
         }
         case 'give_powerup': {
           const p: PowerupType = a.powerup === 'none' ? 'speed' : a.powerup;
-          const who = a.target ? this.fighters.filter((f) => f.alive && f.name === a.target) : this.ctx.fighters();
+          const who = (a.target ? this.fighters.filter((f) => f.alive && f.name === a.target) : this.ctx.fighters()).filter((f) => f.canPowerUp);
+          if (!POWERUPS_ENABLED) note = 'Powerups are turned off. Try a weapon: "give everyone a rocket".';
+          else if (!who.length && a.target) note = `${a.target} is a player: players don't get powerups.`;
           who.forEach((f) => {
             f.givePowerup(p);
             this.juice.burst(f.x, f.y, 0xffd23f, 10);
@@ -523,6 +527,10 @@ export class BattleScene extends Phaser.Scene {
           break;
         }
         case 'give_weapon': {
+          if (!COMBAT_ENABLED) {
+            note = "Survival mode: nobody can attack, so weapons are off. Throw a disaster instead!";
+            break;
+          }
           const w = a.weapon === 'none' ? 'sword' : a.weapon;
           const who = a.target ? this.fighters.filter((f) => f.alive && f.name === a.target) : this.ctx.fighters();
           who.forEach((f) => f.setWeapon(w));
@@ -544,6 +552,7 @@ export class BattleScene extends Phaser.Scene {
       }
     }
     if (fromChip) this.god.setStatus(`${actions.map((a) => (a.type in DISASTERS ? DISASTERS[a.type as DisasterType].emoji : '✨')).join(' ')} unleashed!`, '#ffd23f');
+    return note;
   }
 
   // -------------------------------------------------------------------------
@@ -599,13 +608,14 @@ export class BattleScene extends Phaser.Scene {
 
   private updateCrates(dt: number): void {
     this.crateMs -= dt;
-    if (this.crateMs <= 0 && !this.ending) {
+    // Nothing to put in a crate in survival mode with powerups off.
+    if (this.crateMs <= 0 && !this.ending && (COMBAT_ENABLED || POWERUPS_ENABLED)) {
       this.crateMs = BATTLE.crateEveryMs * this.rng.realInRange(0.7, 1.3);
       const [zl, zr] = this.zone();
       const x = this.rng.between(Math.max(30, zl + 20), Math.min(ARENA.width - 30, zr - 20));
       // Powerups are a bit more common than weapons; their crates are mystery boxes.
       const loot: CrateLoot =
-        this.rng.frac() < 0.6
+        POWERUPS_ENABLED && (!COMBAT_ENABLED || this.rng.frac() < 0.6)
           ? { kind: 'powerup', powerup: randomPowerup(() => this.rng.frac()) }
           : { kind: 'weapon', weapon: randomWeapon(() => this.rng.frac()) };
       const isPower = loot.kind === 'powerup';
@@ -633,7 +643,10 @@ export class BattleScene extends Phaser.Scene {
         (c.img.list[0] as Phaser.GameObjects.Triangle).setVisible(false);
       }
       c.img.setPosition(c.x, c.y);
-      const taker = this.ctx.fighters().find((f) => boxHitsRect(f.bounds(), c.x - 11, c.y - 9, 22, 18));
+      // Players walk past mystery (powerup) crates; weapon crates are for everyone.
+      const taker = this.ctx
+        .fighters()
+        .find((f) => (c.loot.kind === 'weapon' || f.canPowerUp) && boxHitsRect(f.bounds(), c.x - 11, c.y - 9, 22, 18));
       if (taker || c.ms > 16000) {
         if (taker) {
           let label: string;
@@ -665,7 +678,7 @@ export class BattleScene extends Phaser.Scene {
     for (const f of this.fighters) {
       if (!f.alive) continue;
       drawPowerups(g, f, this.elapsed);
-      if (!f.hidden) drawWeapon(g, f);
+      if (!f.hidden && COMBAT_ENABLED) drawWeapon(g, f);
       // Health bar above the name.
       const w = 22;
       const x = f.x - w / 2;

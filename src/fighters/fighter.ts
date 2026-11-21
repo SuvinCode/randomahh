@@ -4,7 +4,7 @@ import { BTN } from '@shared/room';
 import { sfx } from '../audio/sfx';
 import { standingTops } from '../world/buildTerrain';
 import { POWER, POWERUP_DEFS } from '../powerups/defs';
-import { DEPTH, FIGHTER } from '../config';
+import { COMBAT_ENABLED, DEPTH, FIGHTER, POWERUPS_ENABLED } from '../config';
 import type { Attacker, BattleContext, Box, Target } from '../battle/types';
 import { fighterTexture } from '../textures';
 import { attack, inRange } from '../weapons/attack';
@@ -106,13 +106,17 @@ export class Fighter implements Target {
   get flying(): boolean {
     return this.has('flight');
   }
+  /** Powerups are off (POWERUPS_ENABLED); when on, only bots get them (they'd fight a player's controls). */
+  get canPowerUp(): boolean {
+    return POWERUPS_ENABLED && this.pilot === null;
+  }
   has(p: PowerupType): boolean {
     return (this.powerups.get(p) ?? 0) > 0;
   }
 
   /** Start (or refresh) a powerup. */
   givePowerup(p: PowerupType): void {
-    if (this.dead) return;
+    if (this.dead || !this.canPowerUp) return;
     this.powerups.set(p, POWERUP_DEFS[p].durationMs);
     if (p === 'shield') this.shieldHp = POWER.shieldHp;
     if (p === 'teleport') this.teleportMs = 600;
@@ -237,7 +241,7 @@ export class Fighter implements Target {
       this.body.setVelocityY(-this.jumpPower * (this.has('speed') ? 1.15 : 1));
     }
 
-    if (this.cooldownMs <= 0) {
+    if (COMBAT_ENABLED && this.cooldownMs <= 0) {
       const aim = plan.target && inRange(this, plan.target) ? plan.target : plan.aim;
       if (aim) {
         attack(this, aim, ctx);

@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { DISASTER_TYPES, DISASTERS, POWERUP_TYPES, type Action, type DisasterType } from '@shared/commands';
 import { ghostFor, makeSuggester, type Suggestion } from '@shared/suggest';
-import { ARENA, GAME_HEIGHT, PANEL_HEIGHT } from '../config';
+import { ARENA, COMBAT_ENABLED, GAME_HEIGHT, PANEL_HEIGHT, POWERUPS_ENABLED } from '../config';
 
 const CSS = `
 .god { width: 940px; height: ${PANEL_HEIGHT - 8}px; box-sizing: border-box; font: 14px monospace; color: #fff;
@@ -62,7 +62,7 @@ export class GodBar {
   private readonly list: HTMLElement;
   private suggestions: Suggestion[] = [];
   private active = -1;
-  private suggester = makeSuggester([]);
+  private suggester = makeSuggester([], { powerups: POWERUPS_ENABLED, weapons: COMBAT_ENABLED });
   private suggesterKey = '';
 
   constructor(
@@ -87,8 +87,8 @@ export class GodBar {
         <div class="god-chips">
           ${CHIPS.map((c, i) => `<button class="god-chip" type="button" data-c="${i}">${c.text}</button>`).join('')}
           <button class="god-chip help" type="button" data-h="heal">💚 Heal all</button>
-          <button class="god-chip help" type="button" data-h="power">✨ Random powerup for all</button>
-          <button class="god-chip help" type="button" data-h="arm">🎁 Rocket for all</button>
+          ${POWERUPS_ENABLED ? '<button class="god-chip help" type="button" data-h="power">✨ Random powerup for all</button>' : ''}
+          ${COMBAT_ENABLED ? '<button class="god-chip help" type="button" data-h="arm">🎁 Rocket for all</button>' : ''}
         </div>
       </div>`;
     const dom = scene.add.dom(ARENA.width / 2, GAME_HEIGHT - PANEL_HEIGHT + 4).createFromHTML(html).setOrigin(0.5, 0);
@@ -205,7 +205,7 @@ export class GodBar {
     const key = names.join('\u0000');
     if (key !== this.suggesterKey) {
       this.suggesterKey = key;
-      this.suggester = makeSuggester(names);
+      this.suggester = makeSuggester(names, { powerups: POWERUPS_ENABLED, weapons: COMBAT_ENABLED });
     }
     const value = this.input.value;
     this.suggestions = document.activeElement === this.input ? this.suggester(value) : [];

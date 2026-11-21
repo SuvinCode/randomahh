@@ -91,3 +91,23 @@ describe('new commands', () => {
     expect(one('bomb').type).toBe('mega_bomb');
   });
 });
+
+describe('suggestions with powerups switched off', () => {
+  const off = makeSuggester(['Bob'], { powerups: false });
+  it('leave powerups out but keep weapons and disasters', () => {
+    expect(off('give Bob ').map((s) => s.hint)).not.toContain('Powerup');
+    expect(off('give Bob ').some((s) => s.hint === 'Weapon')).toBe(true);
+    expect(off('give everyone fl')).toEqual([]);
+    expect(off('torn')[0]?.full).toBe('tornado');
+  });
+});
+
+describe('suggestions in survival mode (no weapons, no powerups)', () => {
+  const survival = makeSuggester(['Bob'], { powerups: false, weapons: false });
+  it('only offers disasters and helpers', () => {
+    expect(survival('give Bob ')).toEqual([]);
+    expect(survival('give everyone a ro')).toEqual([]);
+    expect(survival('heal ev')[0]?.full).toBe('heal everyone');
+    expect(survival('3 torn')[0]?.full).toBe('3 tornado');
+  });
+});

@@ -28,6 +28,19 @@ export const FIGHTER = {
   flashMs: 120,
 } as const;
 
+/**
+ * Powerups (speed, flight, teleport…) are switched off: crates only hold
+ * weapons, and the god box won't hand them out. Flip to true to bring them back.
+ */
+export const POWERUPS_ENABLED = false;
+
+/**
+ * Survival mode: nobody attacks anybody (players or bots). The only danger is
+ * the host's disasters and the storm; last one standing wins. No weapons or
+ * crates either. Flip to true for the brawl.
+ */
+export const COMBAT_ENABLED = false;
+
 export const BATTLE = {
   /** The storm starts closing in at this time... */
   zoneStartMs: 50_000,

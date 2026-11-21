@@ -15,6 +15,7 @@
 import { WEAPONS_CATALOG, WEAPON_TYPES } from '@shared/commands';
 import { CMD, FLAG, OBJ, OBJ_ARGS, css15, type Frame } from '@shared/frame';
 import type { Arena, Roster } from '@shared/room';
+import { COMBAT_ENABLED } from '../config';
 
 const W = 960;
 const H = 540;
@@ -251,7 +252,7 @@ export class ArenaView {
       const mine = f[0] === this.me;
       if ((f[5] & FLAG.hidden) !== 0 && !mine) continue;
       const hand = toScreen(at.x + f[3] * 13, at.y + 8);
-      this.drawEmoji(g, WEAPONS_CATALOG[WEAPON_TYPES[f[6]] ?? 'sword'].emoji, hand.x, hand.y, Math.round(font * 1.2));
+      if (COMBAT_ENABLED) this.drawEmoji(g, WEAPONS_CATALOG[WEAPON_TYPES[f[6]] ?? 'sword'].emoji, hand.x, hand.y, Math.round(font * 1.2));
       const top = toScreen(at.x, at.y - FH / 2);
       const bw = 24 * dpr;
       const hp = f[4] / 100;

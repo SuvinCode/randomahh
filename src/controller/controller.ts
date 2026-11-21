@@ -12,6 +12,7 @@
 import { POWERUPS, WEAPONS_CATALOG, MAX_NAME } from '@shared/commands';
 import { decodeFrame } from '@shared/frame';
 import { BTN, MAX_HOST_MESSAGE_BYTES, PlayerToServerSchema, ServerToPlayerSchema, WS_PATH, decode, normalizeCode, type PlayerToServer, type You } from '@shared/room';
+import { COMBAT_ENABLED } from '../config';
 import { ArenaView } from './arenaView';
 import './controller.css';
 
@@ -174,10 +175,10 @@ class Controller {
       <div class="msg" aria-live="polite"></div>
       <div class="say" aria-live="polite"></div>
       <div class="pad right">
-        <button class="btn attack" data-b="${BTN.attack}" aria-label="Attack"><span class="ico">⚔️</span><small>ATTACK</small></button>
+        ${COMBAT_ENABLED ? `<button class="btn attack" data-b="${BTN.attack}" aria-label="Attack"><span class="ico">⚔️</span><small>ATTACK</small></button>` : ''}
         <button class="btn jump" data-b="${BTN.jump}" aria-label="Jump">⤒<small>JUMP</small></button>
       </div>
-      <div class="keys">A/D or ←/→ move · W/Space jump · S down (flying) · J attack</div>
+      <div class="keys">${COMBAT_ENABLED ? 'A/D or ←/→ move · W/Space jump · S down (flying) · J attack' : 'A/D or ←/→ move · W/Space jump · dodge the disasters!'}</div>
       <div class="turn">↻ Turn sideways for a bigger view</div>`;
     document.body.append(this.root);
     const q = <T extends HTMLElement>(s: string) => this.root.querySelector<T>(s)!;
@@ -191,7 +192,7 @@ class Controller {
       say: q('.say'),
       turn: q('.turn'),
       top: q('.top'),
-      attackIco: q('.attack .ico'),
+      attackIco: this.root.querySelector<HTMLElement>('.attack .ico') ?? el('span'),
     };
     this.view = new ArenaView(q<HTMLCanvasElement>('.view'));
     const layout = () => this.layout();
@@ -365,9 +366,9 @@ class Controller {
     this.ui.bar.style.background = hp > 50 ? '#4ade80' : hp > 25 ? '#facc15' : '#ef4444';
     this.ui.hpnum.textContent = fighting ? `${hp}` : '';
     const weapon = WEAPONS_CATALOG[y.weapon];
-    this.ui.gear.textContent = fighting ? `${weapon.emoji}${y.powerups.map((p) => POWERUPS[p].emoji).join('')}` : '';
+    this.ui.gear.textContent = fighting ? `${COMBAT_ENABLED ? weapon.emoji : ''}${y.powerups.map((p) => POWERUPS[p].emoji).join('')}` : '';
     this.ui.attackIco.textContent = fighting ? weapon.emoji : '⚔️';
-    this.ui.stats.textContent = y.phase === 'lobby' ? '' : `💀 ${y.kills}${y.alive ? ` · 👥 ${y.alive}` : ''}`;
+    this.ui.stats.textContent = y.phase === 'lobby' ? '' : [COMBAT_ENABLED ? `💀 ${y.kills}` : '', y.alive ? `👥 ${y.alive}` : ''].filter(Boolean).join(' · ');
 
     if (!this.hostOn) return;
     if (y.phase === 'over' && y.place === 1) this.setMsg(y.msg, '🏆');
