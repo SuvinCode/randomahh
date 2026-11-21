@@ -14,7 +14,14 @@ import { MAX_FRAME_FIGHTERS } from './frame';
 /** Room codes: 4 letters, no I/O (they look like 1/0). */
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const ROOM_CODE_RE = /^[A-HJ-NP-Z]{4}$/;
-// No cap on players per room: everyone who scans the QR code gets a fighter.
+/**
+ * Player limits the host can pick in the lobby (null = unlimited). The server
+ * refuses new phones once a room is full; players who were already in can
+ * always come back. Everyone who gets in gets a fighter.
+ */
+export const PLAYER_LIMITS = [10, 20, null] as const;
+export type PlayerLimit = number | null;
+export const DEFAULT_PLAYER_LIMIT: PlayerLimit = 10;
 /** Bigger messages from players are dropped. */
 export const MAX_MESSAGE_BYTES = 1024;
 /** The host's JSON messages (arena layout, roster of up to MAX_FRAME_FIGHTERS) can be bigger. */
@@ -131,6 +138,8 @@ export const HostToServerSchema = z.discriminatedUnion('t', [
   /** To every player in the room. (Arena frames go as binary messages: shared/frame.ts.) */
   z.object({ t: z.literal('all'), m: FeedSchema }).strict(),
   z.object({ t: z.literal('kick'), id: PlayerId, reason: z.string().max(120) }).strict(),
+  /** Most players the room lets in (null = unlimited). Sent on open and whenever the host changes it. */
+  z.object({ t: z.literal('limit'), max: z.number().int().min(1).max(10_000).nullable() }).strict(),
 ]);
 export type HostToServer = z.infer<typeof HostToServerSchema>;
 

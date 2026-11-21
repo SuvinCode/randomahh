@@ -1,5 +1,16 @@
 import { uniqueName } from '@shared/names';
-import { ServerToHostSchema, WS_PATH, decode, type Feed, type HostToServer, type ServerToHost, type You } from '@shared/room';
+import {
+  DEFAULT_PLAYER_LIMIT,
+  PLAYER_LIMITS,
+  ServerToHostSchema,
+  WS_PATH,
+  decode,
+  type Feed,
+  type HostToServer,
+  type PlayerLimit,
+  type ServerToHost,
+  type You,
+} from '@shared/room';
 
 /** A person in the room, playing from their phone or laptop. */
 export interface RoomPlayer {
@@ -20,6 +31,17 @@ type Events = {
 };
 
 const RESUME_KEY = 'random-ahh:room';
+const LIMIT_KEY = 'random-ahh:max-players';
+
+function loadLimit(): PlayerLimit {
+  try {
+    const v = JSON.parse(localStorage.getItem(LIMIT_KEY) ?? 'undefined');
+    if ((PLAYER_LIMITS as readonly PlayerLimit[]).includes(v)) return v;
+  } catch {
+    /* no storage, or nothing saved */
+  }
+  return DEFAULT_PLAYER_LIMIT;
+}
 
 /**
  * The host's side of a party room: one WebSocket for the whole session (lobby,
@@ -38,6 +60,20 @@ class HostRoom {
   private readonly lastSent = new Map<string, { json: string; at: number }>();
   /** Names the joining players must not clash with (bots in the lobby, fighters in a battle). */
   reservedNames: () => string[] = () => [];
+  /** Most players the room lets in (null = unlimited); the host picks it in the lobby. */
+  maxPlayers: PlayerLimit = loadLimit();
+
+  /** Change the player limit (players already in stay in). */
+  setMaxPlayers(max: PlayerLimit): void {
+    this.maxPlayers = max;
+    try {
+      localStorage.setItem(LIMIT_KEY, JSON.stringify(max));
+    } catch {
+      /* no storage */
+    }
+    this.send({ t: 'limit', max });
+    this.emit('change');
+  }
 
   /** Open the room (once). Safe to call from every scene. */
   start(): void {
@@ -169,6 +205,7 @@ class HostRoom {
         this.token = m.token;
         this.retryMs = 1000;
         this.lastSent.clear();
+        this.send({ t: 'limit', max: this.maxPlayers });
         try {
           sessionStorage.setItem(RESUME_KEY, JSON.stringify({ code: m.code, token: m.token }));
         } catch {

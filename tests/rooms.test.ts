@@ -127,7 +127,38 @@ describe('room hub', () => {
     expect(hst.conn.last('in').b).toBe(BTN.jump);
   });
 
-  it('has no cap on players per room', () => {
+  it('lets the host cap players; people already in can always come back', () => {
+    const h = hub();
+    const hst = host(h);
+    hst.s.message(JSON.stringify({ t: 'limit', max: 10 }));
+    const ps = Array.from({ length: 10 }, (_, k) => player(h, hst.code, `player${String(k).padStart(4, '0')}`));
+    const extra = player(h, hst.code, 'latecomer1');
+    expect(extra.conn.last('bye').reason).toMatch(/full \(10 players\)/);
+    // A player drops and comes back while the room is full: still let in.
+    ps[3].s.closed();
+    player(h, hst.code, 'latecomer2'); // takes the free spot
+    const back = player(h, hst.code, 'player0003');
+    expect(back.conn.last('joined')).toBeDefined();
+    expect(back.conn.sent.some((m) => m.t === 'bye')).toBe(false);
+    // Raising the limit lets the next one in.
+    hst.s.message(JSON.stringify({ t: 'limit', max: 20 }));
+    expect(player(h, hst.code, 'latecomer3').conn.last('joined')).toBeDefined();
+    // Unlimited.
+    hst.s.message(JSON.stringify({ t: 'limit', max: null }));
+    for (let k = 0; k < 30; k++) expect(player(h, hst.code, `more${String(k).padStart(6, '0')}`).conn.last('joined')).toBeDefined();
+  });
+
+  it('kicked players lose their spot in a full room', () => {
+    const h = hub();
+    const hst = host(h);
+    hst.s.message(JSON.stringify({ t: 'limit', max: 1 }));
+    player(h, hst.code, 'player0001');
+    hst.s.message(JSON.stringify({ t: 'kick', id: 'player0001', reason: 'bye' }));
+    player(h, hst.code, 'player0002');
+    expect(player(h, hst.code, 'player0001').conn.last('bye').reason).toMatch(/full/);
+  });
+
+  it('has no cap on players until the host sets one', () => {
     const h = hub();
     const hst = host(h);
     const players = Array.from({ length: 150 }, (_, k) => player(h, hst.code, `player${String(k).padStart(4, '0')}`));

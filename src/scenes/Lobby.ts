@@ -4,6 +4,7 @@ import { MAX_FIGHTERS } from '@shared/commands';
 import { addNames, randomNames } from '@shared/names';
 import { sfx } from '../audio/sfx';
 import { ARENA, COMBAT_ENABLED, GAME_HEIGHT, REGISTRY_KEYS } from '../config';
+import { PLAYER_LIMITS } from '@shared/room';
 import { hostRoom, joinBaseUrl } from '../net/hostRoom';
 import { waitingYou } from '../net/youState';
 import { fighterColors } from '../textures';
@@ -25,6 +26,11 @@ const CSS = `
 .party .hint { font-size: 11px; color: #9a9ab5; line-height: 1.4; }
 .party .warn { color: #ff8a8a; }
 .party .joined { font-size: 13px; font-weight: bold; color: #4cc9f0; }
+.party .joined.full { color: #ff8a8a; }
+.party .limit { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #9a9ab5; }
+.party .limit button { height: 26px; padding: 0 8px; border-radius: 13px; border: 2px solid #4cc9f0; background: transparent;
+  color: #4cc9f0; font: bold 12px monospace; cursor: pointer; }
+.party .limit button.on { background: #4cc9f0; color: #141726; }
 .chip.player { background: #102a35; }
 .lobby-row { display: flex; gap: 8px; }
 .lobby input { flex: 1; min-width: 0; height: 42px; box-sizing: border-box; padding: 0 14px; border-radius: 10px;
@@ -59,6 +65,7 @@ export class LobbyScene extends Phaser.Scene {
     url: HTMLElement;
     hint: HTMLElement;
     joined: HTMLElement;
+    limits: HTMLButtonElement[];
   };
   private joinBase: { url: string; lanOnly: boolean; warn?: string } | null = null;
   private shownQr = '';
@@ -83,6 +90,9 @@ export class LobbyScene extends Phaser.Scene {
         <div class="code" aria-label="Room code">····</div>
         <div class="url"></div>
         <div class="joined"></div>
+        <div class="limit" role="group" aria-label="Max players">Max
+          ${PLAYER_LIMITS.map((m) => `<button type="button" data-limit="${m ?? 0}">${m ?? 'Unlimited'}</button>`).join('')}
+        </div>
         <div class="hint"></div>
       </div>
       <div class="lobby">
@@ -112,6 +122,7 @@ export class LobbyScene extends Phaser.Scene {
       url: root.querySelector('.url')!,
       hint: root.querySelector('.hint')!,
       joined: root.querySelector('.joined')!,
+      limits: [...root.querySelectorAll<HTMLButtonElement>('[data-limit]')],
     };
     const add = () => {
       const v = this.els.input.value;
@@ -132,6 +143,11 @@ export class LobbyScene extends Phaser.Scene {
     root.addEventListener('click', (e) => {
       const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button');
       if (!btn) return;
+      if (btn.dataset.limit !== undefined) {
+        sfx.play('click');
+        hostRoom.setMaxPlayers(Number(btn.dataset.limit) || null);
+        return;
+      }
       if (btn.dataset.kick) {
         hostRoom.kick(btn.dataset.kick);
         return;
@@ -236,9 +252,13 @@ export class LobbyScene extends Phaser.Scene {
 
   /** QR code, room code and address for players. */
   private renderParty(): void {
-    const { qr, code, url, hint, joined } = this.els;
+    const { qr, code, url, hint, joined, limits } = this.els;
     const n = hostRoom.connected().length;
-    joined.textContent = `📱 ${n} joined`;
+    const max = hostRoom.maxPlayers;
+    const full = max !== null && n >= max;
+    joined.textContent = max === null ? `📱 ${n} joined` : `📱 ${n} / ${max} joined${full ? ' · room full' : ''}`;
+    joined.classList.toggle('full', full);
+    for (const b of limits) b.classList.toggle('on', (Number(b.dataset.limit) || null) === max);
     const base = this.joinBase;
     const keys = COMBAT_ENABLED
       ? 'Phones: ◀ ▶ jump · attack buttons<br>Laptops: WASD / arrows · J to attack'

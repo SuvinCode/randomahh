@@ -54,13 +54,19 @@ the rest of the roster. The host starts the battle and just watches / plays god.
   rects, circles, containers at disaster depths, see `src/net/mirror.ts`). So new
   disasters show on phones automatically, as long as they draw with those object
   types at `DEPTH.disasterBack`…`DEPTH.telegraph`. Frames are 1–6 KB.
-- **No cap on players per room**: every phone that joins gets a fighter. Bots fill
+- **Player limit, picked by the host in the lobby: 10 (default), 20 or Unlimited**
+  (`PLAYER_LIMITS` in shared/room.ts; remembered in localStorage). The host sends
+  it as `{t:'limit'}` on open/resume and on change; the server refuses new phones
+  when full ("Room ABCD is full"), but anyone who already joined that room (and
+  wasn't kicked) can always come back. Lowering it never kicks anyone. The lobby
+  shows "📱 n / 10 joined · room full". Every phone that's in gets a fighter. Bots fill
   the arena up to `MAX_FIGHTERS` (50; players don't count toward it, extra bots sit
   out). Frames and the roster carry up to `MAX_FRAME_FIGHTERS` (500, shared/frame.ts);
-  the god box sends the AI at most 70 names (ones in the text first). The lobby shows
-  "📱 n joined". Tested with 60 phones (host 120 fps, ~16 KB/s per phone). Big rooms
-  are limited by the server's outgoing bandwidth (every frame goes to every phone),
-  the Wi-Fi, and how crowded a 960 px arena gets.
+  the god box sends the AI at most 70 names (ones in the text first). Tested with
+  100 phones: host 104–120 fps through every disaster; each phone gets ~16 KB/s
+  calm, ~115–140 KB/s during big disasters. Big rooms are limited by the server's
+  outgoing bandwidth (every frame goes to every phone), the Wi-Fi, and how crowded
+  a 960 px arena gets.
 - Phones (`src/controller/arenaView.ts`) play frames back ~70–150 ms behind the
   host's clock (jitter buffer, fighters interpolated) so bursty networks don't
   stutter; terrain is a cached layer, the mirror is replayed once per frame into

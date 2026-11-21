@@ -45,6 +45,10 @@ interface Room {
   host: Conn | null;
   hostGoneTimer: ReturnType<typeof setTimeout> | null;
   players: Map<string, Player>;
+  /** Most players let in at once (null = unlimited), set by the host. */
+  max: number | null;
+  /** Everyone who has joined: they can always come back, even when the room is full. */
+  known: Set<string>;
 }
 
 export interface HubOptions {
@@ -150,7 +154,15 @@ export class RoomHub {
       return old;
     }
     if (this.rooms.size >= this.opts.maxRooms) return null;
-    const room: Room = { code: this.newCode(), token: this.newToken(), host: conn, hostGoneTimer: null, players: new Map() };
+    const room: Room = {
+      code: this.newCode(),
+      token: this.newToken(),
+      host: conn,
+      hostGoneTimer: null,
+      players: new Map(),
+      max: null,
+      known: new Set(),
+    };
     this.rooms.set(room.code, room);
     sendTo(conn, { t: 'room', code: room.code, token: room.token });
     return room;
@@ -165,7 +177,10 @@ export class RoomHub {
       // Same player again (reload, second tab): the newest connection wins.
       sendTo(existing.conn, { t: 'bye', reason: 'You joined from another tab.' });
       existing.conn.close();
+    } else if (room.max !== null && !room.known.has(pid) && room.players.size >= room.max) {
+      return `Room ${code} is full (${room.max} players).`;
     }
+    room.known.add(pid);
     room.players.set(pid, { name, conn });
     sendTo(conn, { t: 'joined', code, name });
     if (room.host) sendTo(room.host, { t: 'join', id: pid, name });
@@ -183,7 +198,10 @@ export class RoomHub {
     } else if (m.t === 'all') {
       const data = JSON.stringify(m.m);
       for (const p of room.players.values()) sendRaw(p.conn, data);
+    } else if (m.t === 'limit') {
+      room.max = m.max;
     } else if (m.t === 'kick') {
+      room.known.delete(m.id); // kicked players don't get a guaranteed spot back
       const p = room.players.get(m.id);
       if (!p) return;
       room.players.delete(m.id);
