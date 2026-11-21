@@ -64,7 +64,7 @@ export const orbitalLaser: DisasterFactory = (ctx, spec) => {
         }
         if (!s.fired) {
           s.fired = true;
-          sfx.play('laser');
+          sfx.play('beam');
           ctx.juice.flash(120, 0xff9e9e);
         }
         // Drift slowly toward the victim while firing.

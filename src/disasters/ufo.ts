@@ -36,7 +36,6 @@ export const ufo: DisasterFactory = (ctx, spec) => {
     victim: (k === 0 ? aimAt(ctx, spec) : undefined) as Fighter | undefined,
     leaving: false,
   }));
-  sfx.play('spawn');
 
   const inBeam = (x: number, f: Fighter) => {
     const b = f.bounds();
@@ -69,6 +68,7 @@ export const ufo: DisasterFactory = (ctx, spec) => {
           u.victim = all.length ? rng.pick(all) : undefined;
         }
         if (u.phase === 'seek') {
+          sfx.play('ufo'); // warbles while hunting (throttled)
           if (u.victim) u.x += Phaser.Math.Clamp(u.victim.x - u.x, -260 * s, 260 * s);
           if (u.ms > SEEK_MS) [u.phase, u.ms] = ['warn', 0];
         } else if (u.phase === 'warn') {
@@ -77,7 +77,7 @@ export const ufo: DisasterFactory = (ctx, spec) => {
           g.lineBetween(u.x + TOP_W / 2, HOVER_Y + 10, u.x + BOTTOM_W / 2, floorY);
           if (u.ms > WARN_MS) {
             [u.phase, u.ms] = ['beam', 0];
-            sfx.play('teleport');
+            sfx.play('abduct');
           }
         } else {
           // Tractor beam.

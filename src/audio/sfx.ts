@@ -4,6 +4,9 @@ import Phaser from 'phaser';
  * Tiny synthesized sound effects (no audio files). Uses Phaser's Web Audio
  * context, so Phaser's "unlock on first tap/click" handling applies. Silently
  * does nothing where Web Audio isn't available.
+ *
+ * Every disaster has a signature sound when it's unleashed (see
+ * DISASTER_SOUNDS in disasterSounds.ts) plus sounds at its big moments.
  */
 export type SfxName =
   | 'shoot'
@@ -27,18 +30,82 @@ export type SfxName =
   | 'beat'
   | 'siren'
   | 'snap'
-  | 'roar';
+  | 'roar'
+  // Disasters
+  | 'wind'
+  | 'volcano'
+  | 'erupt'
+  | 'blackhole'
+  | 'hum'
+  | 'crackle'
+  | 'whistle'
+  | 'villain'
+  | 'quake'
+  | 'swell'
+  | 'wave'
+  | 'charge'
+  | 'beam'
+  | 'fuse'
+  | 'tick'
+  | 'ufo'
+  | 'abduct'
+  | 'giant'
+  | 'stomp'
+  | 'swarm'
+  | 'horn'
+  | 'shimmer'
+  | 'party'
+  | 'lava'
+  | 'bubble'
+  | 'blizzard'
+  | 'kaiju'
+  | 'nuke';
 
 /** Minimum gap between two plays of the same sound, so a 50-fighter brawl isn't a wall of noise. */
-const MIN_GAP_MS: Partial<Record<SfxName, number>> = { shoot: 70, laser: 90, slash: 70, hit: 60, explode: 90, kill: 80, teleport: 120, buzz: 300, groan: 900 };
+const MIN_GAP_MS: Partial<Record<SfxName, number>> = {
+  shoot: 70,
+  laser: 90,
+  slash: 70,
+  hit: 60,
+  explode: 90,
+  kill: 80,
+  teleport: 120,
+  buzz: 300,
+  groan: 900,
+  wind: 1300,
+  erupt: 650,
+  hum: 1100,
+  whistle: 140,
+  tick: 300,
+  bubble: 150,
+  blizzard: 1800,
+  quake: 1400,
+  ufo: 1400,
+  wave: 600,
+  stomp: 150,
+  abduct: 400,
+  beam: 200,
+};
 
 const MUTE_KEY = 'random-ahh:muted';
 const MASTER = 0.22;
 
+interface NoiseOpts {
+  /** Filter: bandpass (default), lowpass or highpass. */
+  type?: BiquadFilterType;
+  hz: number;
+  /** Sweep the filter to this frequency over the sound. */
+  toHz?: number;
+  vol: number;
+  /** Fade-in time (s): swells instead of hits. */
+  attack?: number;
+  q?: number;
+}
+
 class Sfx {
   private ctx?: AudioContext;
   private master?: GainNode;
-  private noise?: AudioBuffer;
+  private noiseBuf?: AudioBuffer;
   private _muted = false;
 
   constructor() {
@@ -57,9 +124,9 @@ class Sfx {
     this.master = this.ctx.createGain();
     this.master.gain.value = this._muted ? 0 : MASTER;
     this.master.connect(this.ctx.destination);
-    // One second of white noise, reused for hits and whooshes.
-    this.noise = this.ctx.createBuffer(1, this.ctx.sampleRate, this.ctx.sampleRate);
-    const data = this.noise.getChannelData(0);
+    // Three seconds of white noise, reused for hits, whooshes and rumbles.
+    this.noiseBuf = this.ctx.createBuffer(1, this.ctx.sampleRate * 3, this.ctx.sampleRate);
+    const data = this.noiseBuf.getChannelData(0);
     for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
   }
 
@@ -144,6 +211,97 @@ class Sfx {
       case 'roar':
         this.tone('sawtooth', 110, 60, t, 1.1, 0.45);
         return this.burst(t, 1.1, 400, 0.5, 150);
+
+      // ---------------------------------------------------------- disasters
+      case 'wind': // tornado: a howling gust that swells and fades
+        this.noise(t, 1.5, { hz: 350, toHz: 1300, vol: 1.6, attack: 0.5, q: 1.2 });
+        return this.noise(t + 0.2, 1.2, { hz: 1500, toHz: 500, vol: 0.5, attack: 0.4, q: 6 });
+      case 'volcano': // deep rumble with rock crackle on top
+        this.noise(t, 1.8, { type: 'lowpass', hz: 110, toHz: 60, vol: 1.1, attack: 0.25 });
+        for (let k = 0; k < 6; k++) this.burst(t + 0.2 + Math.random() * 1.2, 0.05, 2500 + Math.random() * 2000, 0.3);
+        return;
+      case 'erupt': // each lava burst: a boom
+        this.tone('sine', 90, 35, t, 0.55, 0.6);
+        return this.noise(t, 0.5, { type: 'lowpass', hz: 600, toHz: 120, vol: 0.7 });
+      case 'blackhole': // a warping, falling drone being sucked in
+        this.wobble('sine', 420, 40, t, 1.6, 0.35, 5, 40);
+        return this.noise(t, 1.6, { hz: 2000, toHz: 120, vol: 0.35, attack: 0.3, q: 4 });
+      case 'hum': // the open hole's low throb
+        return this.wobble('sine', 55, 55, t, 1.2, 0.35, 4, 8);
+      case 'crackle': // lightning gathering: electric zaps
+        for (let k = 0; k < 7; k++) {
+          const at = t + Math.random() * 0.6;
+          this.burst(at, 0.04, 4000 + Math.random() * 3000, 0.5);
+          if (k % 2) this.tone('sawtooth', 2400, 3200, at, 0.05, 0.08);
+        }
+        return;
+      case 'whistle': // something falling from the sky
+        return this.tone('sine', 1900 + Math.random() * 300, 380, t, 0.85, 0.13);
+      case 'villain': // Dr Doom: "mwa-ha-ha-HAA"
+        [233, 220, 196].forEach((f, i) => this.wobble('sawtooth', f, f * 0.94, t + i * 0.2, 0.17, 0.4, 9, 6));
+        return this.wobble('sawtooth', 165, 98, t + 0.62, 0.6, 0.45, 7, 8);
+      case 'quake': // the ground groaning
+        this.noise(t, 2.0, { type: 'lowpass', hz: 70, toHz: 45, vol: 1.3, attack: 0.3 });
+        return this.wobble('sine', 38, 32, t, 2.0, 0.35, 3, 4);
+      case 'swell': // tsunami on the horizon: the sea drawing back
+        return this.noise(t, 1.8, { type: 'lowpass', hz: 300, toHz: 1400, vol: 0.6, attack: 1.2 });
+      case 'wave': // the wave crashing in
+        this.noise(t, 1.4, { type: 'lowpass', hz: 2500, toHz: 250, vol: 0.9 });
+        return this.noise(t, 0.8, { type: 'highpass', hz: 3000, vol: 0.25 });
+      case 'charge': // orbital laser powering up
+        this.tone('sine', 180, 2400, t, 1.1, 0.14);
+        return this.tone('square', 90, 1200, t, 1.1, 0.04);
+      case 'beam': // the beam from space hits
+        this.tone('sawtooth', 900, 110, t, 0.7, 0.32);
+        return this.noise(t, 0.7, { hz: 2500, toHz: 400, vol: 0.5 });
+      case 'fuse': // mega bomb: falling whistle, then a fizzing fuse
+        this.tone('sine', 1500, 500, t, 0.6, 0.12);
+        return this.noise(t + 0.4, 1.0, { type: 'highpass', hz: 5000, vol: 0.18 });
+      case 'tick': // bomb countdown
+        return this.tone('square', 1250, 1250, t, 0.05, 0.22);
+      case 'ufo': // the saucer's warbling hum
+        return this.wobble('sine', 720, 760, t, 1.3, 0.45, 7, 110);
+      case 'abduct': // tractor beam lifting someone up
+        this.wobble('triangle', 220, 1500, t, 1.0, 0.18, 12, 30);
+        return this.tone('sine', 440, 1760, t + 0.1, 0.9, 0.08);
+      case 'giant': // "fee, fi, fo, fum"
+        [98, 92, 82, 65].forEach((f, i) => this.tone('square', f, f * 0.97, t + i * 0.28, 0.24, 0.22));
+        return;
+      case 'stomp': // a foot the size of a house landing
+        this.tone('sine', 85, 24, t, 0.8, 0.9);
+        return this.noise(t, 0.6, { type: 'lowpass', hz: 220, toHz: 60, vol: 0.9 });
+      case 'swarm': // a cloud of bees arriving
+        [196, 208, 221, 234].forEach((f) => this.wobble('sawtooth', f, f * 1.05, t, 1.2, 0.1, 23, 9));
+        return;
+      case 'horn': // logo ram: a big truck horn, then rumbling wheels
+        this.tone('square', 233, 233, t, 0.55, 0.14);
+        this.tone('square', 294, 294, t, 0.55, 0.12);
+        return this.noise(t + 0.3, 1.0, { type: 'lowpass', hz: 160, vol: 0.6, attack: 0.1 });
+      case 'shimmer': // Thanos: the gauntlet's stones glowing
+        [1568, 1976, 2349, 2637, 3136].forEach((f, i) => this.tone('triangle', f, f, t + i * 0.09, 0.3, 0.1));
+        return this.wobble('sine', 98, 98, t, 1.2, 0.2, 2, 3);
+      case 'party': // disco: a funky little riff
+        [110, 165, 110, 220].forEach((f, i) => this.tone('square', f, f, t + i * 0.13, 0.11, 0.2));
+        [659, 784, 880, 1047].forEach((f, i) => this.tone('triangle', f, f, t + 0.06 + i * 0.13, 0.08, 0.12));
+        return;
+      case 'lava': // the floor heating up: a rising hiss
+        this.noise(t, 1.6, { type: 'highpass', hz: 2500, toHz: 5000, vol: 0.25, attack: 1.0 });
+        return this.noise(t, 1.6, { type: 'lowpass', hz: 120, vol: 0.7, attack: 0.6 });
+      case 'bubble': { // a lava bubble popping
+        const f = 250 + Math.random() * 300;
+        return this.tone('sine', f, f * 2.2, t, 0.07, 0.25);
+      }
+      case 'blizzard': // icy howling wind with a whistle in it
+        this.noise(t, 2.2, { hz: 1300, toHz: 2300, vol: 0.85, attack: 0.7, q: 2 });
+        return this.wobble('sine', 950, 1150, t + 0.2, 1.6, 0.1, 3, 60);
+      case 'kaiju': // Godzilla's roar: growly, rattling, long
+        this.wobble('sawtooth', 190, 70, t, 1.6, 0.4, 22, 14);
+        this.wobble('square', 95, 45, t, 1.6, 0.12, 17, 6);
+        return this.noise(t, 1.6, { hz: 700, toHz: 200, vol: 0.45, attack: 0.15, q: 2 });
+      case 'nuke': // the biggest boom in the game
+        this.tone('sine', 70, 18, t, 3.2, 1.0);
+        this.noise(t, 3.2, { type: 'lowpass', hz: 900, toHz: 50, vol: 1.2 });
+        return this.noise(t + 0.15, 2.5, { type: 'lowpass', hz: 200, toHz: 40, vol: 0.8 });
     }
   }
 
@@ -163,20 +321,53 @@ class Sfx {
     osc.stop(at + dur + 0.02);
   }
 
+  /** A tone with vibrato (an LFO on its pitch): warbles, growls, throbs. */
+  private wobble(type: OscillatorType, from: number, to: number, at: number, dur: number, vol: number, lfoHz: number, depthHz: number): void {
+    const ctx = this.ctx!;
+    const osc = ctx.createOscillator();
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(from, at);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(20, to), at + dur);
+    lfo.frequency.value = lfoHz;
+    lfoGain.gain.value = depthHz;
+    lfo.connect(lfoGain).connect(osc.frequency);
+    gain.gain.setValueAtTime(0.0001, at);
+    gain.gain.exponentialRampToValueAtTime(vol, at + Math.min(0.08, dur / 4));
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    osc.connect(gain).connect(this.master!);
+    osc.start(at);
+    lfo.start(at);
+    osc.stop(at + dur + 0.02);
+    lfo.stop(at + dur + 0.02);
+  }
+
   /** Filtered noise: hits and whooshes. With `toHz`, the filter sweeps (whoosh). */
   private burst(at: number, dur: number, hz: number, vol: number, toHz?: number): void {
+    this.noise(at, dur, { hz, toHz, vol });
+  }
+
+  /** Filtered noise with optional fade-in: rumbles, wind, waves, hiss. */
+  private noise(at: number, dur: number, o: NoiseOpts): void {
     const ctx = this.ctx!;
     const src = ctx.createBufferSource();
-    src.buffer = this.noise!;
+    src.buffer = this.noiseBuf!;
     const filter = ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(hz, at);
-    if (toHz) filter.frequency.exponentialRampToValueAtTime(toHz, at + dur);
+    filter.type = o.type ?? 'bandpass';
+    if (o.q) filter.Q.value = o.q;
+    filter.frequency.setValueAtTime(o.hz, at);
+    if (o.toHz) filter.frequency.exponentialRampToValueAtTime(o.toHz, at + dur);
     const gain = ctx.createGain();
-    gain.gain.setValueAtTime(vol, at);
+    if (o.attack) {
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(o.vol, at + o.attack);
+    } else gain.gain.setValueAtTime(o.vol, at);
     gain.gain.exponentialRampToValueAtTime(0.0001, at + dur);
     src.connect(filter).connect(gain).connect(this.master!);
-    src.start(at);
+    // Start somewhere random in the buffer so repeated rumbles don't sound identical.
+    src.start(at, Math.random() * Math.max(0, 3 - dur));
     src.stop(at + dur + 0.02);
   }
 }

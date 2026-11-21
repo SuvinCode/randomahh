@@ -54,7 +54,7 @@ export const godzilla: DisasterFactory = (ctx, spec) => {
 
         if (!m.roared && t > RISE_MS * 0.6) {
           m.roared = true;
-          sfx.play('roar');
+          sfx.play('kaiju');
           ctx.juice.shake(700, 0.01);
         }
         // Two sweeps: far → near, then near → far.

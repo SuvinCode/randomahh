@@ -58,6 +58,7 @@ export const blackHole: DisasterFactory = (ctx, spec) => {
         g.fillStyle(0x000000, 1).fillCircle(h.x, h.y, CORE * size + 3);
         g.lineStyle(2, 0xffffff, 0.6).strokeCircle(h.x, h.y, CORE * size + 3);
         if (h.ms < OPEN_MS) continue;
+        sfx.play('hum'); // throbs while open (throttled)
 
         for (const f of ctx.fighters()) {
           const dx = h.x - f.x;

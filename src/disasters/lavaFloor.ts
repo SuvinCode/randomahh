@@ -20,7 +20,6 @@ export const lavaFloor: DisasterFactory = (ctx, spec) => {
   let ms = 0;
   ctx.effects.lavaFloor = true;
   ctx.announce('🔥 The floor is LAVA!', 0xff6b1a);
-  sfx.play('rumble');
 
   return {
     update(dt) {
@@ -53,6 +52,7 @@ export const lavaFloor: DisasterFactory = (ctx, spec) => {
         }
       }
       if (ms < WARN_MS || ms > WARN_MS + LAVA_MS) return true;
+      if (rng.frac() < dt / 220) sfx.play('bubble'); // blub… blub
 
       for (const f of ctx.fighters()) {
         const b = f.body;

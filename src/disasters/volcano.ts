@@ -24,7 +24,6 @@ export const volcano: DisasterFactory = (ctx, spec) => {
     const x = near ? near.x : rng.between(120, ARENA.width - 120);
     return { x: Phaser.Math.Clamp(x + k * 300, W / 2, ARENA.width - W / 2), ms: -k * 500, fireMs: 0, burnMs: 0 };
   });
-  sfx.play('rumble');
   ctx.juice.shake(RISE_MS, 0.005);
 
   return {
@@ -51,6 +50,7 @@ export const volcano: DisasterFactory = (ctx, spec) => {
 
         const erupting = c.ms > RISE_MS && c.ms < RISE_MS + ERUPT_MS;
         if (!erupting) continue;
+        sfx.play('erupt'); // booms while it erupts (throttled)
         back.fillStyle(0xffb347, 0.6).fillEllipse(c.x, floorY - h - 6, 50, 24);
         c.fireMs -= dt;
         if (c.fireMs <= 0) {

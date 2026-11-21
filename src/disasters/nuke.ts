@@ -55,8 +55,7 @@ export const nuke: DisasterFactory = (ctx, spec) => {
       }
       if (!hit) {
         hit = true;
-        sfx.play('explode');
-        sfx.play('roar');
+        sfx.play('nuke');
         ctx.juice.flash(500, 0xffffff);
         ctx.juice.shake(1400, 0.025);
         ctx.juice.explosion(x, floorY - 20, 260, 0xffe066);

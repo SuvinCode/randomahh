@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { sfx } from '../audio/sfx';
 import { ARENA, DEPTH } from '../config';
 import { blink } from '../battle/geometry';
 import type { DisasterFactory } from './types';
@@ -37,6 +38,7 @@ export const asteroids: DisasterFactory = (ctx, spec) => {
         warnG.lineStyle(2, 0xff3d3d, a).lineBetween(m.x - 8, floorY - 8, m.x + 8, floorY + 8).lineBetween(m.x - 8, floorY + 8, m.x + 8, floorY - 8);
         if (m.ms >= WARN_MS) {
           marks.splice(k, 1);
+          sfx.play('whistle'); // incoming!
           // Launch so it lands on the mark ~0.8s later, coming in at an angle.
           const from = m.x + rng.pick([-1, 1]) * rng.between(150, 350);
           const T = 0.8;

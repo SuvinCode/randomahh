@@ -9,6 +9,7 @@ for (const name of ['fillEllipse', 'strokeEllipse'] as const) {
   };
 }
 import { ARENA, GAME_HEIGHT } from './config';
+import { sfx } from './audio/sfx';
 import { BattleScene } from './scenes/Battle';
 import { BootScene } from './scenes/Boot';
 import { LobbyScene } from './scenes/Lobby';
@@ -37,4 +38,4 @@ const game = new Phaser.Game({
 });
 
 // Handy for poking at the game from devtools / browser tests.
-if (import.meta.env.DEV) (window as unknown as { game: Phaser.Game }).game = game;
+if (import.meta.env.DEV) Object.assign(window as unknown as Record<string, unknown>, { game, sfx });

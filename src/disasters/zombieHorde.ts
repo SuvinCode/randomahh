@@ -151,7 +151,6 @@ export const zombieHorde: DisasterFactory = (ctx, spec) => {
     return z;
   });
   const live = new Set(zombies);
-  sfx.play('groan');
 
   return {
     update(dt) {

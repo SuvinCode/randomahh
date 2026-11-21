@@ -24,7 +24,6 @@ export const tsunami: DisasterFactory = (ctx, spec) => {
     return { dir, ms: -k * 2200, front: dir === 1 ? -20 : ARENA.width + 20 };
   });
   const tick = new Map<Fighter, number>();
-  sfx.play('rumble');
 
   return {
     update(dt) {
@@ -44,6 +43,7 @@ export const tsunami: DisasterFactory = (ctx, spec) => {
           arrowAt(warnG, w.dir === 1 ? 24 : ARENA.width - 24, floorY - 140, w.dir, 0x4cc9f0, w.ms);
           continue;
         }
+        if (w.ms - dt < WARN_MS) sfx.play('wave'); // here it comes
         w.front += w.dir * SPEED * s;
         const back = w.front - w.dir * LENGTH;
         if ((w.dir === 1 && back > ARENA.width + 20) || (w.dir === -1 && back < -20)) continue;

@@ -108,7 +108,10 @@ the rest of the roster. The host starts the battle and just watches / plays god.
 - New disaster = one file in `src/disasters/`, registered in
   `src/disasters/registry.ts` (a full `Record`, so a missing one fails to
   compile), a `DISASTERS` catalog entry (emoji, aliases, default/max count),
-  and a line in the prompt. Disasters end themselves (`update` returns false).
+  a signature sound in `src/audio/disasterSounds.ts` (also a full `Record`;
+  synthesize new ones in `src/audio/sfx.ts`), and a line in the prompt. Play
+  sounds at its big moments too (impact, eruption…); repeating ones rely on
+  `MIN_GAP_MS` throttling in sfx.ts. Disasters end themselves (`update` returns false).
 - Every disaster **warns first** (flashing marker, reticle, cracks, ring)
   before it can hurt, so the spectacle reads.
 - After `ctx.damage(f, …)` a fighter may be gone (sprite destroyed): check
@@ -177,7 +180,7 @@ src/disasters/            one file per disaster + registry.ts, types.ts, warning
 src/ui/                   godBar.ts (DOM input + quick buttons), killFeed.ts, hud.ts (alive, clock, storm, callouts)
 src/world/                theme.ts (5 arenas), buildTerrain.ts (classic/towers/steps), drawArena.ts, background.ts
 src/net/commandClient.ts  POST /api/command, response validated with the shared schema
-src/fx.ts, src/audio/sfx.ts  particles/shake; synthesized sounds (throttled per sound)
+src/fx.ts, src/audio/sfx.ts  particles/shake; synthesized sounds (throttled per sound); audio/disasterSounds.ts: each disaster's signature sound
 tests/                    vitest: contract, parser, names, server (network faked), rooms (fake sockets)
 ```
 

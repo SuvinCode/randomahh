@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { sfx } from '../audio/sfx';
 import { ARENA, DEPTH } from '../config';
 import type { Fighter } from '../fighters/fighter';
 import type { DisasterFactory } from './types';
@@ -46,6 +47,7 @@ export const tornado: DisasterFactory = (ctx, spec) => {
         t.ms += dt;
         if (t.ms < 0 || t.ms > LIFE_MS) continue;
         alive = true;
+        if (t.ms > 900 && t.ms < LIFE_MS - 900) sfx.play('wind'); // keeps howling (throttled)
         // Grow in, shrink out.
         const scale = Math.min(1, t.ms / 600, (LIFE_MS - t.ms) / 600);
         t.spin += s * 9;

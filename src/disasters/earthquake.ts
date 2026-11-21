@@ -16,7 +16,6 @@ export const earthquake: DisasterFactory = (ctx, spec) => {
   const cracks = Array.from({ length: 6 + power * 3 }, () => ({ x: rng.between(20, ARENA.width - 20), len: rng.between(10, 30) }));
   let ms = 0;
   let joltMs = 400;
-  sfx.play('rumble');
 
   return {
     update(dt) {
@@ -26,7 +25,7 @@ export const earthquake: DisasterFactory = (ctx, spec) => {
       joltMs -= dt;
       if (joltMs <= 0) {
         joltMs = rng.between(450, 750) / power;
-        if (rng.frac() < 0.4) sfx.play('rumble');
+        if (rng.frac() < 0.4) sfx.play('quake');
         for (const f of ctx.fighters()) {
           if (f.onGround && Math.abs(f.bounds().bottom - floorY) < 4) {
             ctx.damage(f, 5 + power * 2, spec.by, { knock: 0, lift: 0 });

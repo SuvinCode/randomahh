@@ -80,7 +80,7 @@ export const logoRam: DisasterFactory = (ctx, spec) => {
         if (!r.body.visible) {
           r.body.setVisible(true);
           r.text.setVisible(true);
-          sfx.play('roar');
+          sfx.play('horn');
           ctx.juice.shake(250, 0.006);
         }
         r.body.x += r.dir * SPEED * (dt / 1000);

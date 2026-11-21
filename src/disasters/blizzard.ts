@@ -26,13 +26,13 @@ export const blizzard: DisasterFactory = (ctx, spec) => {
   let gustDir: 1 | -1 = rng.frac() < 0.5 ? 1 : -1;
   let chillTick = 0;
   let iceMs = 600;
-  sfx.play('rumble');
 
   return {
     update(dt) {
       const s = dt / 1000;
       ms += dt;
       if (ms > LIFE_MS) return false;
+      if (ms > 1500 && ms < LIFE_MS - 1500) sfx.play('blizzard'); // keeps howling (throttled)
       const fade = Math.min(1, ms / 800, (LIFE_MS - ms) / 800);
 
       // Gusts: 1s warning arrows, then the wind blows; direction flips each cycle.

@@ -67,7 +67,7 @@ export const giantStomp: DisasterFactory = (ctx, spec) => {
 
         if (!st.landed && t >= d0 + DROP_MS) {
           st.landed = true;
-          sfx.play('explode');
+          sfx.play('stomp');
           ctx.juice.shake(300, 0.016);
           ctx.juice.burst(st.x - HALF, floorY - 4, 0x8d7b68, 14);
           ctx.juice.burst(st.x + HALF, floorY - 4, 0x8d7b68, 14);

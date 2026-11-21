@@ -58,7 +58,9 @@ export const megaBomb: DisasterFactory = (ctx, spec) => {
           const a = Math.floor(fuse / (fuse > FUSE_MS - 1000 ? 70 : 160)) % 2 ? 0.25 : 0.7;
           g.lineStyle(3, 0xff3d3d, a).strokeCircle(b.x, b.y, RADIUS);
           g.fillStyle(0xff3d3d, 0.06).fillCircle(b.x, b.y, RADIUS);
-          b.text.setText(String(Math.ceil((FUSE_MS - fuse) / 1000))).setPosition(b.x, b.y - R - 18);
+          const left = String(Math.ceil((FUSE_MS - fuse) / 1000));
+          if (b.text.text !== left) sfx.play('tick'); // one tick per second of countdown
+          b.text.setText(left).setPosition(b.x, b.y - R - 18);
         }
         const flash = b.landedAt >= 0 && Math.floor(fuse / 120) % 2 === 0;
         g.fillStyle(0x000000, 1).fillCircle(b.x, b.y, R + 2);

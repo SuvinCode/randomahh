@@ -203,7 +203,6 @@ export const drDoom: DisasterFactory = (ctx, spec) => {
     return b;
   });
   ctx.announce(`${spec.by.icon} ${spec.by.name} has arrived!`, 0x7dff9a);
-  sfx.play('spawn');
   const live = new Set(bosses);
 
   return {

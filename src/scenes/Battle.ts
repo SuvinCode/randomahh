@@ -4,6 +4,7 @@ import { FLAG, FRAME_MAGIC, FrameWriter, to15 } from '@shared/frame';
 import type { Arena } from '@shared/room';
 import { uniqueName } from '@shared/names';
 import { parseCommand } from '@shared/parseCommand';
+import { DISASTER_SOUNDS } from '../audio/disasterSounds';
 import { sfx } from '../audio/sfx';
 import { boxHitsCircle, boxHitsRect, boxHitsSegment } from '../battle/geometry';
 import { Projectiles } from '../battle/projectiles';
@@ -547,7 +548,8 @@ export class BattleScene extends Phaser.Scene {
           this.disasters.push(disasterRegistry[type](this.ctx, { type, count: Math.min(entry.maxCount, Math.max(1, a.count)), target, by }));
           // Some disasters make their own entrance (Dr Doom, Thanos, the nuke, lava).
           if (!SELF_ANNOUNCING.has(type)) this.hud.announce(`${entry.emoji} ${name}${target ? ` → ${target.name}` : ''}!`, 0xffffff, 24);
-          sfx.play('spawn');
+          const sound = DISASTER_SOUNDS[type];
+          if (sound) sfx.play(sound);
         }
       }
     }
