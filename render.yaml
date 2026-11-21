@@ -1,0 +1,19 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# New → Blueprint → pick this repo. Secrets marked `sync: false` are asked for
+# in the dashboard on first deploy (never commit them).
+services:
+  - type: web
+    name: random-ahh
+    runtime: node
+    plan: free
+    # devDependencies (Vite, TypeScript) are needed to build.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: MISTRAL_API_KEY
+        sync: false
+      - key: MISTRAL_MODEL
+        sync: false

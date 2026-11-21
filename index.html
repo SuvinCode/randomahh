@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#0d0f1a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <title>Random Ahh</title>
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #0d0f1a;
+        overflow: hidden;
+        overscroll-behavior: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      /* Phaser's Scale.CENTER_BOTH centres the canvas (and its DOM overlay, e.g. the
+         search form) with matching margins. Don't also centre with flexbox, or the
+         overlay drifts away from the canvas on non-16:9 screens. */
+      #game { position: relative; width: 100%; height: 100%; }
+      /* The canvas handles its own touches (on-screen controls); no scroll/zoom gestures. */
+      #game canvas { touch-action: none; user-select: none; -webkit-user-select: none; }
+      .rotate-hint { display: none; }
+      @media (orientation: portrait) and (pointer: coarse) {
+        .rotate-hint {
+          display: block; position: fixed; left: 0; right: 0; top: 0; z-index: 10;
+          padding: 10px 16px; text-align: center;
+          font: 14px monospace; color: #141726; background: #ffd23f;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="rotate-hint" role="note">Turn your phone sideways for a bigger arena ↻</div>
+    <div id="game"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

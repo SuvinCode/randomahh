@@ -1,0 +1,347 @@
+html.controller,
+html.controller body {
+  height: 100%;
+  margin: 0;
+  background: #141726;
+  color: #fff;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+html.controller #game,
+html.controller .rotate-hint {
+  display: none !important;
+}
+
+/* ---------------------------------------------------------------- join */
+
+.join {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: max(16px, env(safe-area-inset-top)) 16px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.join h1 {
+  margin: 0;
+  font-size: clamp(28px, 7vmin, 48px);
+  color: #ffd23f;
+  text-shadow: 3px 3px 0 #000;
+  letter-spacing: 1px;
+}
+.join p.sub {
+  margin: 0 0 4px;
+  color: #c9c9e0;
+  font-size: 14px;
+  text-align: center;
+}
+.join .fields {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: min(560px, 100%);
+}
+.join label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #9a9ab5;
+  flex: 1 1 200px;
+}
+.join input {
+  height: 48px;
+  box-sizing: border-box;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 2px solid #ffd23f;
+  background: #0d0f1a;
+  color: #fff;
+  font: 20px ui-monospace, Menlo, Consolas, monospace;
+  outline: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.join input.code {
+  text-transform: uppercase;
+  letter-spacing: 6px;
+  text-align: center;
+}
+.join button {
+  height: 54px;
+  width: min(560px, 100%);
+  border-radius: 12px;
+  border: 0;
+  background: #ff5d73;
+  color: #fff;
+  font: bold 22px ui-monospace, Menlo, Consolas, monospace;
+  cursor: pointer;
+}
+.join button:disabled {
+  opacity: 0.5;
+}
+.join .err {
+  min-height: 1.4em;
+  margin: 0;
+  color: #ff8a8a;
+  font-size: 14px;
+  text-align: center;
+}
+
+/* ---------------------------------------------------------- controller */
+
+.ctl {
+  --c: #ffd23f;
+  position: fixed;
+  inset: 0;
+  touch-action: none;
+  padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom))
+    max(12px, env(safe-area-inset-left));
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+}
+
+.top {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: #1d2036;
+  border: 2px solid var(--c);
+  min-width: 0;
+}
+.top .name {
+  font-weight: bold;
+  font-size: 18px;
+  color: var(--c);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 30vw;
+}
+.top .hp {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 60px;
+}
+.top .bar {
+  flex: 1;
+  height: 12px;
+  border-radius: 6px;
+  background: #000;
+  overflow: hidden;
+  border: 1px solid #33365a;
+}
+.top .bar i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: #4ade80;
+  transition: width 0.15s, background 0.3s;
+}
+.top .hpnum {
+  font-size: 14px;
+  width: 2.5em;
+  text-align: right;
+}
+.top .gear {
+  font-size: 20px;
+  white-space: nowrap;
+}
+.top .stats {
+  font-size: 14px;
+  color: #c9c9e0;
+  white-space: nowrap;
+}
+
+.msg {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: center;
+  justify-self: center;
+  max-width: 36vw;
+  text-align: center;
+  font-size: clamp(14px, 3.4vmin, 22px);
+  font-weight: bold;
+  color: #fff;
+  text-shadow: 2px 2px 0 #000;
+  pointer-events: none;
+}
+.msg .big {
+  display: block;
+  font-size: clamp(26px, 8vmin, 54px);
+  color: var(--c);
+  margin-bottom: 6px;
+}
+
+.pad {
+  grid-row: 2;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+.pad.left {
+  grid-column: 1;
+  justify-content: flex-start;
+}
+.pad.right {
+  grid-column: 3;
+  justify-content: flex-end;
+}
+
+.btn {
+  --size: clamp(76px, 25vmin, 128px);
+  width: var(--size);
+  height: var(--size);
+  border-radius: 22px;
+  border: 3px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font: bold clamp(30px, 10vmin, 52px) ui-monospace, Menlo, Consolas, monospace;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.05s, background 0.05s;
+}
+.btn small {
+  font-size: clamp(10px, 2.6vmin, 13px);
+  margin-top: 4px;
+  letter-spacing: 1px;
+}
+.btn.on {
+  background: rgba(255, 255, 255, 0.35);
+  border-color: #fff;
+  transform: scale(0.94);
+}
+.btn.jump {
+  border-radius: 50%;
+  border-color: var(--c);
+  --size: clamp(88px, 30vmin, 150px);
+}
+.btn.attack {
+  border-radius: 50%;
+  border-color: #ff5d73;
+  background: rgba(255, 93, 115, 0.18);
+  margin-bottom: clamp(36px, 14vmin, 80px);
+}
+.btn.attack.on {
+  background: rgba(255, 93, 115, 0.55);
+}
+.btn.attack .ico {
+  font-size: clamp(28px, 9vmin, 46px);
+}
+.btn.down {
+  --size: clamp(60px, 19vmin, 96px);
+  display: none;
+}
+.ctl.flying .btn.down {
+  display: flex;
+}
+.ctl.flying .btn.jump small::after {
+  content: ' / FLY';
+}
+
+/* Not fighting right now: controls are just for warming up your thumbs. */
+.ctl.idle .pad {
+  opacity: 0.45;
+}
+.ctl.hurt .top {
+  animation: hurt 0.25s;
+}
+@keyframes hurt {
+  0% {
+    background: #7a1f2b;
+  }
+  100% {
+    background: #1d2036;
+  }
+}
+
+.banner {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: #000c;
+  border: 2px solid #ffd23f;
+  text-align: center;
+  font-size: 16px;
+  max-width: 80vw;
+  z-index: 5;
+}
+.banner button {
+  margin-top: 10px;
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 10px;
+  border: 0;
+  background: #ffd23f;
+  color: #141726;
+  font: bold 16px ui-monospace, Menlo, Consolas, monospace;
+}
+
+.keys {
+  display: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .keys {
+    display: block;
+    position: fixed;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 12px;
+    color: #7d7d99;
+    white-space: nowrap;
+  }
+}
+
+.turn {
+  display: none;
+}
+@media (orientation: portrait) and (pointer: coarse) {
+  .turn {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 50%;
+    text-align: center;
+    color: #ffd23f;
+    font-size: 16px;
+    pointer-events: none;
+  }
+  .ctl .msg {
+    max-width: 90vw;
+    grid-column: 1 / -1;
+    align-self: start;
+    margin-top: 12px;
+  }
+  .ctl {
+    grid-template-columns: 1fr 1fr;
+  }
+  .pad.right {
+    grid-column: 2;
+  }
+}
